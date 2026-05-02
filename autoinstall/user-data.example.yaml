@@ -9,6 +9,17 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
+  user-data:
+    disable_root: true
+    users:
+      - default
+      - name: vastbootstrap
+        gecos: Vast Bootstrap
+        passwd: "REPLACE_ME_WITH_A_REAL_HASH"
+        lock_passwd: false
+        shell: /bin/bash
+        groups: [adm, sudo]
+        sudo: ALL=(ALL) NOPASSWD:ALL
   storage:
     layout:
       name: direct

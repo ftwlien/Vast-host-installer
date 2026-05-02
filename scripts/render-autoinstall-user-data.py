@@ -59,6 +59,17 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
+  user-data:
+    disable_root: true
+    users:
+      - default
+      - name: {args.username}
+        gecos: Vast Bootstrap
+        passwd: "{password_hash}"
+        lock_passwd: false
+        shell: /bin/bash
+        groups: [adm, sudo]
+        sudo: ALL=(ALL) NOPASSWD:ALL
 {indented_storage_yaml}
 '''
     sys.stdout.write(rendered)
