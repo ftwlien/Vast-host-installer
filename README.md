@@ -35,8 +35,8 @@ Build a trusted post-Ubuntu installer that can:
 - use 100G for / and the rest for /var/lib/docker on single-disk rigs
 - use the biggest non-root disk for /var/lib/docker on two-disk rigs
 - install NVIDIA
-- install Docker
 - install Vast
+- install Docker manually only if Vast setup explicitly needs it
 - optionally install rig-monitor / gputemps / fleet-health extras
 - verify the final state
 
@@ -100,6 +100,7 @@ This mode now:
 - infers a profile
 - applies storage prep + full system updates first
 - then tells you to reboot and resume with the printed command
+- resume phase runs NVIDIA setup first, then the Vast install command
 
 Resume after reboot:
 

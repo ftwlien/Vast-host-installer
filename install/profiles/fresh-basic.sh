@@ -12,7 +12,6 @@ run_profile_fresh_basic() {
     return 0
   fi
   install_nvidia_590_open_from_known_good_flow
-  install_docker_from_known_good_flow
   install_vast_host_from_known_good_flow
   print_vast_post_install_notes
 }
