@@ -1,0 +1,12 @@
+[Unit]
+Description=Vast Host Installer first-run notice
+After=network-online.target ssh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "Run: sudo /opt/vast-host-installer/bin/vast-host-installer --first-run" > /etc/motd'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

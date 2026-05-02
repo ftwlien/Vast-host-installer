@@ -1,0 +1,25 @@
+#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: vast-bootstrap
+    username: vastbootstrap
+    # Replace with a real hashed password before use.
+    password: "REPLACE_ME_WITH_A_REAL_HASH"
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - openssh-server
+    - curl
+    - git
+    - python3
+    - sudo
+  storage:
+    layout:
+      name: direct
+  late-commands:
+    - curtin in-target --target=/target -- mkdir -p /opt/vast-host-installer
+    - curtin in-target --target=/target -- bash -lc 'if [ -f /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz ]; then tar -xzf /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz -C /opt/vast-host-installer --strip-components=0; else echo "Missing payload tarball: /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz" > /opt/vast-host-installer/BOOTSTRAP-ERROR.txt; fi'
+    - curtin in-target --target=/target -- chmod +x /opt/vast-host-installer/bin/vast-host-installer || true
+    - curtin in-target --target=/target -- bash -lc 'echo "Run: sudo /opt/vast-host-installer/bin/vast-host-installer --first-run" > /etc/motd'

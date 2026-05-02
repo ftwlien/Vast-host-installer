@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vast Host Installer</title>
+  <style>
+    body { background:#0b1220; color:#e5eefc; font:16px/1.5 system-ui,sans-serif; margin:0; }
+    .wrap { max-width:980px; margin:0 auto; padding:32px 20px 64px; }
+    .card { background:#111a2e; border:1px solid #334155; border-radius:16px; padding:20px; margin-bottom:18px; }
+    h1,h2 { margin:0 0 12px; }
+    .muted { color:#94a3b8; }
+    label { display:block; margin:10px 0 6px; font-weight:600; }
+    select, input[type="checkbox"] { font:inherit; }
+    select { width:100%; padding:10px 12px; border-radius:10px; border:1px solid #475569; background:#0f172a; color:#e5eefc; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .checks label { font-weight:500; display:flex; gap:10px; align-items:center; }
+    pre { white-space:pre-wrap; word-break:break-word; background:#06101d; border:1px solid #263448; border-radius:12px; padding:16px; }
+    .btn { display:inline-block; padding:10px 14px; border-radius:10px; background:#2563eb; color:white; text-decoration:none; border:none; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Vast Host Installer</h1>
+      <div class="muted">First-pass generator for the install engine. Start with post-Ubuntu installs, then graduate into autoinstall / ISO later.</div>
+    </div>
+
+    <div class="card">
+      <h2>Profile</h2>
+      <div class="row">
+        <div>
+          <label for="profile">Install profile</label>
+          <select id="profile">
+            <option value="fresh-basic">fresh-basic</option>
+            <option value="fresh-single-disk">fresh-single-disk</option>
+            <option value="fresh-two-disk">fresh-two-disk</option>
+            <option value="reinstall-same-id">reinstall-same-id</option>
+            <option value="reinstall-clean">reinstall-clean</option>
+          </select>
+        </div>
+        <div class="checks">
+          <label><input type="checkbox" id="rigMonitor" checked> install rig-monitor</label>
+          <label><input type="checkbox" id="gpuTemps" checked> install gputemps</label>
+          <label><input type="checkbox" id="fleetHealth"> install fleet-health prereqs</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Generated command</h2>
+      <pre id="output"></pre>
+      <button class="btn" id="copyBtn">Copy command</button>
+    </div>
+  </div>
+
+  <script>
+    const output = document.getElementById('output');
+    const profile = document.getElementById('profile');
+    const rigMonitor = document.getElementById('rigMonitor');
+    const gpuTemps = document.getElementById('gpuTemps');
+    const fleetHealth = document.getElementById('fleetHealth');
+    const copyBtn = document.getElementById('copyBtn');
+
+    function buildCommand() {
+      const flags = [];
+      if (rigMonitor.checked) flags.push('--with-rig-monitor');
+      if (gpuTemps.checked) flags.push('--with-gputemps');
+      if (fleetHealth.checked) flags.push('--with-fleet-health');
+      const confirm = profile.value === 'fresh-two-disk' ? ' --confirm-disk /dev/YOUR_DATA_DISK' : '';
+      return `curl -fsSL https://example.com/vast-host-installer/install.sh | bash -s -- --profile ${profile.value}${flags.length ? ' ' + flags.join(' ') : ''}${confirm} --apply`;
+    }
+
+    function render() {
+      output.textContent = buildCommand();
+    }
+
+    [profile, rigMonitor, gpuTemps, fleetHealth].forEach(el => el.addEventListener('change', render));
+    copyBtn.addEventListener('click', async () => {
+      await navigator.clipboard.writeText(output.textContent);
+      copyBtn.textContent = 'Copied';
+      setTimeout(() => copyBtn.textContent = 'Copy command', 1200);
+    });
+
+    render();
+  </script>
+</body>
+</html>
