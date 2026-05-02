@@ -18,35 +18,47 @@ PATCH_REPORT="$EXTRACT_DIR/AUTOINSTALL-BOOT-PATCH-REPORT.txt"
 
 patch_grub_defaults() {
   local file="$1"
-  python3 - "$file" <<'PY'
+  python3 - "$file" "$PATCH_REPORT" <<'PY'
 from pathlib import Path
 import re
 import sys
 
 path = Path(sys.argv[1])
+report_path = Path(sys.argv[2])
 text = path.read_text()
 original = text
+report_lines = []
 
-if 'set default="Ubuntu Server with the HWE kernel"' not in text:
-    if re.search(r'^set timeout=\d+\s*$', text, flags=re.MULTILINE):
-        text = re.sub(r'^set timeout=\d+\s*$', 'set timeout=3', text, count=1, flags=re.MULTILINE)
-    else:
-        text = 'set timeout=3\n' + text
+if re.search(r'^set timeout=\d+\s*$', text, flags=re.MULTILINE):
+    text = re.sub(r'^set timeout=\d+\s*$', 'set timeout=3', text, count=1, flags=re.MULTILINE)
+    report_lines.append(f"Patched timeout: {path}")
+else:
+    text = 'set timeout=3\n' + text
+    report_lines.append(f"Inserted timeout: {path}")
 
+hwe_entry_found = bool(re.search(r"menuentry ['\"]Ubuntu Server with the HWE kernel['\"]", text))
+if hwe_entry_found:
+    desired = 'set default="Ubuntu Server with the HWE kernel"'
     if re.search(r'^set default=.*$', text, flags=re.MULTILINE):
-        text = re.sub(r'^set default=.*$', 'set default="Ubuntu Server with the HWE kernel"', text, count=1, flags=re.MULTILINE)
+        text = re.sub(r'^set default=.*$', desired, text, count=1, flags=re.MULTILINE)
     else:
         timeout_match = re.search(r'^set timeout=.*$', text, flags=re.MULTILINE)
         if timeout_match:
             insert_at = timeout_match.end()
-            text = text[:insert_at] + '\nset default="Ubuntu Server with the HWE kernel"' + text[insert_at:]
+            text = text[:insert_at] + '\n' + desired + text[insert_at:]
         else:
-            text = 'set default="Ubuntu Server with the HWE kernel"\n' + text
+            text = desired + '\n' + text
+    report_lines.append(f"Set default to HWE entry: {path}")
+else:
+    report_lines.append(f"HWE entry not found; left default unchanged: {path}")
 
 if text != original:
     path.write_text(text)
+
+with report_path.open('a') as fh:
+    for line in report_lines:
+        fh.write(line + '\n')
 PY
-  echo "Patched defaults: $file" >> "$PATCH_REPORT"
 }
 
 append_autoinstall_args() {
