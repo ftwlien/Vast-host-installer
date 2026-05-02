@@ -47,9 +47,7 @@ Read-only detect:
 bash install/main.sh --detect-only
 ```
 
-This now also shows the autoinstall-target disk policy view:
-- smallest disk = Ubuntu target
-- largest disk = Docker/Vast target
+This now also shows the autoinstall-target disk policy view.
 
 Install the project into the future bootstrap location:
 
@@ -94,19 +92,24 @@ bash install/main.sh --first-run
 ```
 
 This mode now:
-- asks for hostname
-- asks for Vast API key
+- asks for final hostname
+- asks for final operator username + password
 - asks for Vast host port range
-- can create/set the final operator user + password
-- maps optional extras
+- asks for the full Vast install command from Vast.ai
 - infers a profile
-- prints the plan
-- then hands off into apply mode automatically
+- applies storage prep + full system updates first
+- then tells you to reboot and resume with the printed command
 
-Apply for real:
+Resume after reboot:
 
 ```bash
-bash install/main.sh --profile fresh-two-disk --vast-api-key YOUR_KEY_HERE --vast-port-range 40000-40019 --confirm-disk /dev/YOUR_DATA_DISK --apply
+sudo VAST_INSTALL_COMMAND='PASTE_VAST_COMMAND_HERE' VAST_PORT_RANGE='40000-40019' bash install/main.sh --profile fresh-basic --resume-after-reboot --apply
+```
+
+Direct apply for real:
+
+```bash
+bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --vast-port-range 40000-40019 --confirm-disk /dev/YOUR_DATA_DISK --resume-after-reboot --apply
 ```
 
 For destructive two-disk storage apply, the installer now requires the exact target disk to be confirmed explicitly.

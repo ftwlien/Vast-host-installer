@@ -2,10 +2,10 @@
 set -euo pipefail
 
 install_vast_host_from_known_good_flow() {
-  local api_key port_range
+  local api_key port_range install_cmd
   api_key="${VAST_API_KEY:-}"
   port_range="${VAST_PORT_RANGE:-40000-40019}"
-  [[ -n "$api_key" ]] || die "VAST API key is required. Pass --vast-api-key <key> or set VAST_API_KEY."
+  install_cmd="${VAST_INSTALL_COMMAND:-}"
 
   if ! is_apt_system; then
     die "Vast install module currently supports apt-based Ubuntu/Debian systems only"
@@ -13,9 +13,16 @@ install_vast_host_from_known_good_flow() {
 
   log "installing Vast host from known-good guide flow"
   sudo apt install -y python3 wget netcat-openbsd
-  rm -f /tmp/vast-install.sh
-  wget -q https://console.vast.ai/install -O /tmp/vast-install.sh
-  sudo python3 /tmp/vast-install.sh "$api_key"
+
+  if [[ -n "$install_cmd" ]]; then
+    log "running provided Vast install command"
+    bash -lc "$install_cmd"
+  else
+    [[ -n "$api_key" ]] || die "Provide either VAST_INSTALL_COMMAND or VAST_API_KEY."
+    rm -f /tmp/vast-install.sh
+    wget -q https://console.vast.ai/install -O /tmp/vast-install.sh
+    sudo python3 /tmp/vast-install.sh "$api_key"
+  fi
 
   sudo mkdir -p /var/lib/vastai_kaalia
   echo "$port_range" | sudo tee /var/lib/vastai_kaalia/host_port_range >/dev/null

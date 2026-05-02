@@ -9,8 +9,10 @@ WITH_FLEET_HEALTH=0
 PLAN_ONLY=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
+RESUME_AFTER_REBOOT=0
 CONFIRM_DISK=""
 VAST_API_KEY="${VAST_API_KEY:-}"
+VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
 VAST_PORT_RANGE="${VAST_PORT_RANGE:-40000-40019}"
 
 source "$ROOT_DIR/install/lib/common.sh"
@@ -41,11 +43,13 @@ Options:
   --with-gputemps
   --with-fleet-health
   --vast-api-key <key>
+  --vast-install-command <cmd>
   --vast-port-range <range>
   --confirm-disk <device>
   --detect-only
   --plan-only
   --first-run
+  --resume-after-reboot
   --apply
 EOF
 }
@@ -73,6 +77,10 @@ while [[ $# -gt 0 ]]; do
       VAST_API_KEY="${2:-}"
       shift 2
       ;;
+    --vast-install-command)
+      VAST_INSTALL_COMMAND="${2:-}"
+      shift 2
+      ;;
     --vast-port-range)
       VAST_PORT_RANGE="${2:-}"
       shift 2
@@ -91,6 +99,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --first-run)
       FIRST_BOOT_MODE=1
+      shift
+      ;;
+    --resume-after-reboot)
+      RESUME_AFTER_REBOOT=1
       shift
       ;;
     --apply)
@@ -127,7 +139,7 @@ fi
 if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   run_first_boot_questionnaire
   PROFILE="$(infer_profile_from_layout)"
-  VAST_API_KEY="$FIRST_BOOT_API_KEY"
+  VAST_INSTALL_COMMAND="$FIRST_BOOT_VAST_INSTALL_COMMAND"
   VAST_PORT_RANGE="$FIRST_BOOT_PORT_RANGE"
   WITH_RIG_MONITOR="$FIRST_BOOT_INSTALL_RIG_MONITOR"
   WITH_GPUTEMPS="$FIRST_BOOT_INSTALL_GPUTEMPS"
@@ -140,7 +152,34 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   plan_storage_layout
   emit_autoinstall_storage_policy
   emit_plan_preview "$PROFILE"
-  APPLY_CHANGES=1
+
+  log "phase 1: storage + full system prep"
+  case "$PROFILE" in
+    fresh-basic|fresh-single-disk)
+      apply_storage_layout_placeholder
+      ;;
+    fresh-two-disk)
+      ensure_two_disk_storage_layout
+      ;;
+    *)
+      die "Unknown profile for first-run prep phase: $PROFILE"
+      ;;
+  esac
+  run_base_system_prep_from_known_good_flow
+
+  cat <<EOF
+
+Phase 1 complete.
+Now reboot the machine, then run:
+
+sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-reboot --apply
+
+EOF
+  exit 0
+fi
+
+if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
+  [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-reboot requires --apply"
 fi
 
 if [[ "$APPLY_CHANGES" -ne 1 ]]; then

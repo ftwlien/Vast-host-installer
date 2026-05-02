@@ -5,7 +5,7 @@ FIRST_BOOT_INSTALL_RIG_MONITOR=0
 FIRST_BOOT_INSTALL_GPUTEMPS=0
 FIRST_BOOT_INSTALL_FLEET_HEALTH=0
 FIRST_BOOT_HOSTNAME=""
-FIRST_BOOT_API_KEY=""
+FIRST_BOOT_VAST_INSTALL_COMMAND=""
 FIRST_BOOT_USERNAME=""
 FIRST_BOOT_PASSWORD=""
 FIRST_BOOT_PORT_RANGE="40000-40019"
@@ -48,18 +48,16 @@ run_first_boot_questionnaire() {
   read -r -p "Final hostname: " FIRST_BOOT_HOSTNAME
   [[ -n "$FIRST_BOOT_HOSTNAME" ]] || die "Hostname is required"
 
-  read -r -s -p "Vast API key: " FIRST_BOOT_API_KEY
-  echo
-  [[ -n "$FIRST_BOOT_API_KEY" ]] || die "Vast API key is required"
+  read -r -p "Final operator username: " FIRST_BOOT_USERNAME
+  [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Final username is required"
+  prompt_password_twice
 
   read -r -p "Vast host port range [40000-40019]: " FIRST_BOOT_PORT_RANGE
   FIRST_BOOT_PORT_RANGE="${FIRST_BOOT_PORT_RANGE:-40000-40019}"
 
-  if prompt_yes_no "Create/set final operator user?" "y"; then
-    read -r -p "Final username: " FIRST_BOOT_USERNAME
-    [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Username is required when creating final operator user"
-    prompt_password_twice
-  fi
+  echo "Paste the full Vast install command from Vast.ai (for example the wget/python command)."
+  read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
+  [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
   if prompt_yes_no "Install rig-monitor?" "y"; then
     FIRST_BOOT_INSTALL_RIG_MONITOR=1
