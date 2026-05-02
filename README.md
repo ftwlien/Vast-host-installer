@@ -71,6 +71,18 @@ Autoinstall/bootstrap scaffolding now exists in:
 - `docs/ISO-PLAN.md`
 - `docs/ISO-BUILD-PIPELINE.md`
 
+## Current ISO testing artifact
+
+The current locally built custom ISO candidate for VM testing is:
+
+- `iso/build/vast-host-installer-jammy-custom.iso`
+
+On bot1, the full path is:
+
+- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-jammy-custom.iso`
+
+This is a locally built test artifact, not a GitHub release download yet.
+
 Read-only plan preview:
 
 ```bash
