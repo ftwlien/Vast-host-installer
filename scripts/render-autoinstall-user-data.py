@@ -65,6 +65,14 @@ autoinstall:
     - git
     - python3
     - sudo
+  apt:
+    preserve_sources_list: false
+    geoip: false
+    primary:
+      - arches: [default]
+        uri: http://archive.ubuntu.com/ubuntu
+      - arches: [arm64, armhf, ppc64el, riscv64, s390x]
+        uri: http://ports.ubuntu.com/ubuntu-ports
 {indented_storage_yaml}
   late-commands:
     - [mkdir, -p, /target/opt/vast-host-installer]
