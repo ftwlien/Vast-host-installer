@@ -51,11 +51,29 @@ if [[ ! -f "$EXTRACT_DIR/boot/grub/grub.cfg" ]]; then
   exit 4
 fi
 
+if [[ ! -f "$EXTRACT_DIR/boot/grub/i386-pc/eltorito.img" ]]; then
+  echo "Expected BIOS boot image missing: $EXTRACT_DIR/boot/grub/i386-pc/eltorito.img"
+  exit 5
+fi
+
+if [[ ! -f "$EXTRACT_DIR/EFI/boot/grubx64.efi" ]]; then
+  echo "Expected UEFI boot image missing: $EXTRACT_DIR/EFI/boot/grubx64.efi"
+  exit 6
+fi
+
 xorriso -as mkisofs \
   -r \
   -V 'VASTHOST_JAMMY' \
   -o "$OUTPUT_ISO" \
   -J -l \
+  -b boot/grub/i386-pc/eltorito.img \
+  -no-emul-boot \
+  -boot-load-size 4 \
+  -boot-info-table \
+  --grub2-boot-info \
+  -eltorito-alt-boot \
+  -e EFI/boot/grubx64.efi \
+  -no-emul-boot \
   "$EXTRACT_DIR" >/dev/null 2>&1
 
 cat > "$BUILD_DIR/CUSTOM-ISO-PLAN.txt" <<EOF
