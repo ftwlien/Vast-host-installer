@@ -10,6 +10,22 @@ storage_partition_for_disk() {
   fi
 }
 
+single_disk_root_partition() {
+  local root_source
+  root_source="$(findmnt -n -o SOURCE /)"
+  [[ -n "$root_source" ]] || return 1
+  printf '%s\n' "$root_source"
+}
+
+single_disk_docker_partition() {
+  local disk="$1"
+  if [[ "$disk" =~ nvme ]]; then
+    printf '%sp3\n' "$disk"
+  else
+    printf '%s3\n' "$disk"
+  fi
+}
+
 plan_storage_layout() {
   local layout root_disk data_disk
   layout="$(classify_layout)"
@@ -20,9 +36,13 @@ plan_storage_layout() {
     single-disk)
       echo "STORAGE_PLAN=single-disk"
       echo "ROOT_DISK=$root_disk"
-      echo "DATA_DISK=$root_disk"
+      echo "ROOT_PARTITION=$(single_disk_root_partition || echo unknown)"
+      echo "ROOT_TARGET_SIZE_GB=100"
+      echo "DOCKER_DATA_DISK=$root_disk"
+      echo "DOCKER_DATA_PARTITION=$(single_disk_docker_partition "$root_disk")"
       echo "DOCKER_DATA_TARGET=/var/lib/docker"
-      echo "VAST_DATA_TARGET=/var/lib/docker"
+      echo "DATA_FS=xfs"
+      echo "PLAN_NOTE=shrink root to 100G and use the remaining space on the same disk for /var/lib/docker"
       ;;
     two-disk)
       local part
@@ -47,14 +67,19 @@ plan_storage_layout() {
 }
 
 apply_storage_layout_placeholder() {
-  local layout data_disk part
+  local layout data_disk root_disk docker_part
   layout="$(classify_layout)"
   data_disk="$(largest_non_root_disk || true)"
+  root_disk="$(get_root_disk || true)"
   case "$layout" in
     single-disk)
-      log "placeholder: single-disk mode will keep Docker/Vast on the existing root disk"
+      docker_part="$(single_disk_docker_partition "$root_disk")"
+      log "single-disk plan: shrink root filesystem to 100G on $root_disk"
+      log "single-disk plan: create $docker_part from remaining space"
+      log "single-disk plan: format $docker_part as XFS and mount at /var/lib/docker"
       ;;
     two-disk)
+      local part
       part="$(storage_partition_for_disk "$data_disk")"
       log "two-disk plan: would prepare $data_disk"
       log "two-disk plan: would create partition $part if missing"

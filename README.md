@@ -32,7 +32,8 @@ V1 is a real install engine that can later be embedded into an autoinstall or IS
 
 Build a trusted post-Ubuntu installer that can:
 - detect one-disk vs two-disk rigs
-- choose boot disk vs data disk
+- use 100G for / and the rest for /var/lib/docker on single-disk rigs
+- use the biggest non-root disk for /var/lib/docker on two-disk rigs
 - install NVIDIA
 - install Docker
 - install Vast
@@ -144,6 +145,7 @@ Current state:
 - first-run workflow mode exists
 - `--plan-only` preview mode exists
 - human-readable plan summary exists
+- single-disk policy targets 100G for / and the rest for /var/lib/docker
 - two-disk storage planning is explicit
 - first real two-disk storage apply function exists
 - first-pass Vast install module exists
