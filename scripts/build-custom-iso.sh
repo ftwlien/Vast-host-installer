@@ -27,6 +27,8 @@ for cmd in xorriso rsync; do
   fi
 done
 
+"$ROOT_DIR/scripts/prepare-iso-scaffold.sh"
+
 mkdir -p "$BUILD_DIR" "$WORK_DIR" "$EXTRACT_DIR"
 if [[ -d "$EXTRACT_DIR" ]]; then
   chmod -R u+w "$EXTRACT_DIR" 2>/dev/null || true

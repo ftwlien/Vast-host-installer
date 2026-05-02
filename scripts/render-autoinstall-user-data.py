@@ -67,9 +67,9 @@ autoinstall:
     - sudo
 {indented_storage_yaml}
   late-commands:
-    - curtin in-target --target=/target -- mkdir -p /opt/vast-host-installer
+    - curtin in-target --target=/target -- bash -lc 'mkdir -p /opt/vast-host-installer'
     - curtin in-target --target=/target -- bash -lc 'if [ -f /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz ]; then tar -xzf /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz -C /opt/vast-host-installer --strip-components=0; else echo "Missing payload tarball: /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz" > /opt/vast-host-installer/BOOTSTRAP-ERROR.txt; fi'
-    - curtin in-target --target=/target -- chmod +x /opt/vast-host-installer/bin/vast-host-installer || true
+    - curtin in-target --target=/target -- bash -lc 'chmod +x /opt/vast-host-installer/bin/vast-host-installer || true'
     - curtin in-target --target=/target -- bash -lc 'echo "Run: sudo /opt/vast-host-installer/bin/vast-host-installer --first-run" > /etc/motd'
 '''
     sys.stdout.write(rendered)
