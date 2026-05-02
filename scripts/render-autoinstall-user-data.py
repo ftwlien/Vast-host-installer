@@ -60,13 +60,6 @@ autoinstall:
     install-server: true
     allow-pw: true
 {indented_storage_yaml}
-  late-commands:
-    - [mkdir, -p, /target/opt/vast-host-installer]
-    - [cp, /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz, /target/opt/vast-host-installer/]
-    - [curtin, in-target, --target=/target, --, tar, -xzf, /opt/vast-host-installer/vast-host-installer-payload.tgz, -C, /opt/vast-host-installer]
-    - [curtin, in-target, --target=/target, --, rm, -f, /opt/vast-host-installer/vast-host-installer-payload.tgz]
-    - [curtin, in-target, --target=/target, --, chmod, +x, /opt/vast-host-installer/bin/vast-host-installer]
-    - [curtin, in-target, --target=/target, --, /bin/sh, -c, 'echo "Run: sudo /opt/vast-host-installer/bin/vast-host-installer --first-run" > /etc/motd']
 '''
     sys.stdout.write(rendered)
     return 0
