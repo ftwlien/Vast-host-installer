@@ -68,13 +68,19 @@ xorriso -as mkisofs \
   -V 'VASTHOST_JAMMY' \
   -o "$OUTPUT_ISO" \
   -J -l \
+  -partition_offset 16 \
+  -append_partition 2 0xef "$EXTRACT_DIR/EFI/boot/grubx64.efi" \
+  -appended_part_as_gpt \
+  -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
+  -c boot.catalog \
   -b boot/grub/i386-pc/eltorito.img \
   -no-emul-boot \
   -boot-load-size 4 \
   -boot-info-table \
+  --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
   --grub2-boot-info \
   -eltorito-alt-boot \
-  -e EFI/boot/grubx64.efi \
+  -e '--interval:appended_partition_2:::' \
   -no-emul-boot \
   "$EXTRACT_DIR" >/dev/null 2>&1
 
