@@ -159,7 +159,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   emit_autoinstall_storage_policy
   emit_plan_preview "$PROFILE"
 
-  log "phase 1: storage + full system prep"
+  banner "Phase 1 - Storage and System Prep"
   if storage_already_correct; then
     log "storage layout already matches the intended plan; skipping storage changes"
   else
@@ -179,8 +179,8 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
 
   cat <<EOF
 
-Phase 1 complete.
-Now reboot the machine, then run:
+$(printf '\033[1;32m✓ Phase 1 complete.\033[0m')
+Reboot the machine, then run:
 
 sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-reboot --apply
 
@@ -190,12 +190,12 @@ fi
 
 if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-reboot requires --apply"
-  log "phase 2: NVIDIA open driver install + config"
+  banner "Phase 2 - NVIDIA Open Driver Setup"
   install_nvidia_590_open_from_known_good_flow
   cat <<EOF
 
-Phase 2 complete.
-Now reboot the machine again, then run:
+$(printf '\033[1;32m✓ Phase 2 complete.\033[0m')
+Reboot the machine again, then run:
 
 sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-nvidia-reboot --apply
 

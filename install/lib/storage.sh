@@ -36,8 +36,7 @@ storage_already_correct() {
 prompt_storage_confirmation() {
   local prompt reply
   prompt="$1"
-  echo
-  echo "$prompt"
+  prompt_box "$prompt"
   read -r -p "Continue? [y/N]: " reply
   case "$reply" in
     y|Y|yes|YES) return 0 ;;

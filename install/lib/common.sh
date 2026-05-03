@@ -1,17 +1,51 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ -t 1 ]]; then
+  C_RESET='\033[0m'
+  C_BOLD='\033[1m'
+  C_BLUE='\033[1;34m'
+  C_GREEN='\033[1;32m'
+  C_YELLOW='\033[1;33m'
+  C_RED='\033[1;31m'
+  C_CYAN='\033[1;36m'
+else
+  C_RESET=''
+  C_BOLD=''
+  C_BLUE=''
+  C_GREEN=''
+  C_YELLOW=''
+  C_RED=''
+  C_CYAN=''
+fi
+
+banner() {
+  printf '\n%b=== %s ===%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
+}
+
+step() {
+  printf '%b→ %s%b\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"
+}
+
+success() {
+  printf '%b✓ %s%b\n' "$C_GREEN$C_BOLD" "$*" "$C_RESET"
+}
+
 log() {
-  printf '[vast-host-installer] %s\n' "$*"
+  printf '%b[vast-host-installer]%b %s\n' "$C_CYAN$C_BOLD" "$C_RESET" "$*"
 }
 
 warn() {
-  printf '[vast-host-installer][warn] %s\n' "$*" >&2
+  printf '%b[vast-host-installer][warn]%b %s\n' "$C_YELLOW$C_BOLD" "$C_RESET" "$*" >&2
 }
 
 die() {
-  printf '[vast-host-installer][error] %s\n' "$*" >&2
+  printf '%b[vast-host-installer][error]%b %s\n' "$C_RED$C_BOLD" "$C_RESET" "$*" >&2
   exit 1
+}
+
+prompt_box() {
+  printf '\n%b%s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
 }
 
 require_cmd() {

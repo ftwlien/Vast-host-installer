@@ -30,11 +30,11 @@ prompt_password_twice() {
     read -r -s -p "Confirm password: " p2
     echo
     if [[ -z "$p1" ]]; then
-      echo "Password cannot be empty."
+      warn "Password cannot be empty."
       continue
     fi
     if [[ "$p1" != "$p2" ]]; then
-      echo "Passwords did not match. Try again."
+      warn "Passwords did not match. Try again."
       continue
     fi
     FIRST_BOOT_PASSWORD="$p1"
@@ -43,7 +43,8 @@ prompt_password_twice() {
 }
 
 run_first_boot_questionnaire() {
-  echo "== Vast Host Installer first-run setup =="
+  banner "Vast Host Installer - First Run Setup"
+  step "We will ask a few simple questions, then prepare the machine in phases."
 
   read -r -p "Final hostname: " FIRST_BOOT_HOSTNAME
   [[ -n "$FIRST_BOOT_HOSTNAME" ]] || die "Hostname is required"
@@ -52,10 +53,11 @@ run_first_boot_questionnaire() {
   [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Final username is required"
   prompt_password_twice
 
+  prompt_box "Choose the port range Vast should use on this host. Press Enter to use the default."
   read -r -p "Vast host port range [40000-40019]: " FIRST_BOOT_PORT_RANGE
   FIRST_BOOT_PORT_RANGE="${FIRST_BOOT_PORT_RANGE:-40000-40019}"
 
-  echo "Paste the full Vast install command from Vast.ai (for example the wget/python command)."
+  prompt_box "Paste the full Vast install command from Vast.ai below (for example the wget/python command)."
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
