@@ -162,7 +162,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   log "phase 1: storage + full system prep"
   case "$PROFILE" in
     fresh-basic|fresh-single-disk)
-      apply_storage_layout_placeholder
+      ensure_single_disk_storage_layout
       ;;
     fresh-two-disk)
       ensure_two_disk_storage_layout

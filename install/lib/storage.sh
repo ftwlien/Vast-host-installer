@@ -10,6 +10,27 @@ storage_partition_for_disk() {
   fi
 }
 
+prompt_storage_confirmation() {
+  local prompt reply
+  prompt="$1"
+  echo
+  echo "$prompt"
+  read -r -p "Continue? [y/N]: " reply
+  case "$reply" in
+    y|Y|yes|YES) return 0 ;;
+    *) die "Storage step cancelled by user." ;;
+  esac
+}
+
+single_disk_partition_prefix() {
+  local disk="$1"
+  if [[ "$disk" =~ nvme ]]; then
+    printf '%sp' "$disk"
+  else
+    printf '%s' "$disk"
+  fi
+}
+
 single_disk_root_partition() {
   local root_source
   root_source="$(findmnt -n -o SOURCE /)"
@@ -92,6 +113,48 @@ apply_storage_layout_placeholder() {
   esac
 }
 
+ensure_single_disk_storage_layout() {
+  local root_disk root_part prefix bios_part docker_part uuid mount_target
+  root_disk="$(get_root_disk)"
+  root_part="$(single_disk_root_partition)"
+  prefix="$(single_disk_partition_prefix "$root_disk")"
+  bios_part="${prefix}1"
+  docker_part="${prefix}3"
+  mount_target="/var/lib/docker"
+
+  [[ "$(classify_layout)" == "single-disk" ]] || die "single-disk storage apply requested, but layout is $(classify_layout)"
+  [[ -b "$root_disk" ]] || die "root disk not found: $root_disk"
+  [[ -b "$root_part" ]] || die "root partition not found: $root_part"
+
+  prompt_storage_confirmation "Detected SINGLE-DISK machine. Plan: keep Ubuntu on $root_part at 100G, create $docker_part from remaining space, format it as XFS, and mount it at $mount_target."
+
+  sudo apt install -y cloud-guest-utils e2fsprogs gdisk
+  sudo e2fsck -f -y "$root_part"
+  sudo resize2fs "$root_part" 100G
+  sudo parted -s "$root_disk" unit GiB resizepart 2 100
+  sudo parted -s "$root_disk" unit GiB mkpart primary xfs 100 100%
+  sudo partprobe "$root_disk"
+  sleep 2
+  sudo mkfs.xfs -f "$docker_part"
+
+  uuid="$(sudo blkid -s UUID -o value "$docker_part")"
+  [[ -n "$uuid" ]] || die "could not resolve UUID for $docker_part"
+
+  sudo mkdir -p "$mount_target"
+  sudo cp /etc/fstab "/etc/fstab.vast-host-installer.$(date +%Y%m%d-%H%M%S)"
+  sudo python3 - <<PY
+from pathlib import Path
+p = Path('/etc/fstab')
+mount_target = '${mount_target}'
+entry = 'UUID=${uuid} ${mount_target} xfs defaults,nofail,prjquota 0 2'
+lines = [line for line in p.read_text().splitlines() if mount_target not in line]
+lines.append(entry)
+p.write_text('\n'.join(lines) + '\n')
+PY
+  sudo mount -a
+  log "single-disk storage layout applied: $docker_part -> $mount_target"
+}
+
 ensure_two_disk_storage_layout() {
   local layout data_disk part uuid mount_target
   layout="$(classify_layout)"
@@ -106,6 +169,7 @@ ensure_two_disk_storage_layout() {
   [[ "$CONFIRM_DISK" == "$data_disk" ]] || die "Refusing destructive two-disk apply: expected --confirm-disk ${data_disk}, got ${CONFIRM_DISK}"
 
   part="$(storage_partition_for_disk "$data_disk")"
+  prompt_storage_confirmation "Detected TWO-DISK machine. Plan: keep Ubuntu on $layout root disk, use $data_disk for /var/lib/docker, create one XFS partition, and mount it persistently."
   log "applying two-disk storage layout on $data_disk"
 
   if ! blkid "$part" >/dev/null 2>&1; then

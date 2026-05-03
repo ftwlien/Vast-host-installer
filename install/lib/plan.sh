@@ -41,10 +41,11 @@ emit_plan_preview() {
   case "$layout" in
     single-disk)
       echo "Storage action: shrink root filesystem to 100G and use the remaining space on the same disk for /var/lib/docker"
+      echo "Confirmation: script will explain the plan in plain English and ask before doing destructive disk changes"
       ;;
     two-disk)
       echo "Storage action: create one XFS partition on ${data_disk}, mount it at /var/lib/docker, persist in /etc/fstab"
-      echo "Required apply confirmation: --confirm-disk ${data_disk}"
+      echo "Confirmation: script will explain the plan in plain English and ask before doing destructive disk changes"
       ;;
     *)
       echo "Storage action: STOP — layout is ambiguous and needs operator review"

@@ -111,7 +111,8 @@ This mode now:
 - asks for final operator username + password
 - asks for Vast host port range
 - asks for the full Vast install command from Vast.ai
-- infers a profile
+- detects whether the machine is single-disk or two-disk
+- explains the storage plan in plain English and asks for confirmation before destructive disk changes
 - phase 1: applies storage prep + full system updates
 - then tells you to reboot
 - phase 2 after reboot: installs/configures NVIDIA open drivers
