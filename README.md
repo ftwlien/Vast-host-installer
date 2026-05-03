@@ -120,6 +120,28 @@ If you choose the optional Vast CLI install, the CLI is installed on the host fo
 vastai set api-key YOUR_API_KEY
 vastai show user
 ```
+
+### Reset installer-added tools for another test run
+
+If you want to rerun the flow from a mostly clean slate without reinstalling Ubuntu, use:
+
+```bash
+bash scripts/reset-host-installer-state.sh --yes
+```
+
+This removes installer-added userland extras and helper repos such as:
+- Vast CLI user install
+- `~/rig-monitor`
+- `~/Fleet-Health-Check-public`
+- `rig-monitor` launcher files
+- `gputemps` helper files added by these extras
+- local installer resume state
+
+It does **not** fully undo:
+- NVIDIA driver installation
+- Docker installation
+- system packages installed by earlier phases
+- live Vast host configuration already applied by Vast's own installer
 - detects whether the machine is single-disk or two-disk
 - explains the storage plan in plain English and asks for confirmation before destructive disk changes
 - phase 1: applies storage prep + full system updates
