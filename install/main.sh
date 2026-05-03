@@ -224,14 +224,9 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   run_base_system_prep_from_known_good_flow
   save_resume_state after-reboot
 
-  cat <<EOF
-
-$(printf '\033[1;32m✓ Phase 1 complete.\033[0m')
-After reboot, run this command:
-
-cd $ROOT_DIR && bash install/main.sh --resume
-
-EOF
+  printf '\033[1;32m✓ Phase 1 complete.\033[0m\n'
+  echo "After reboot, run the command below."
+  command_box "cd $ROOT_DIR && bash install/main.sh --resume"
   prompt_reboot_now
   exit 0
 fi
@@ -241,14 +236,9 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   banner "Phase 2 - NVIDIA Open Driver Setup"
   install_nvidia_590_open_from_known_good_flow
   save_resume_state after-nvidia-reboot
-  cat <<EOF
-
-$(printf '\033[1;32m✓ Phase 2 complete.\033[0m')
-After reboot, run this command:
-
-cd $ROOT_DIR && bash install/main.sh --resume
-
-EOF
+  printf '\033[1;32m✓ Phase 2 complete.\033[0m\n'
+  echo "After reboot, run the command below."
+  command_box "cd $ROOT_DIR && bash install/main.sh --resume"
   prompt_reboot_now
   exit 0
 fi

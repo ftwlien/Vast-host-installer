@@ -23,6 +23,11 @@ banner() {
   printf '\n%b=== %s ===%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
 }
 
+command_box() {
+  printf '\n%bCOPY / RUN THIS NEXT:%b\n' "$C_GREEN$C_BOLD" "$C_RESET"
+  printf '%b%s%b\n\n' "$C_GREEN$C_BOLD" "$1" "$C_RESET"
+}
+
 step() {
   printf '%b→ %s%b\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"
 }
