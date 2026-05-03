@@ -119,17 +119,13 @@ This mode now:
 - then tells you to reboot again
 - phase 3 after second reboot: verifies NVIDIA, runs the Vast install command, and finishes setup
 
-Resume after first reboot:
+Resume after each reboot:
 
 ```bash
-sudo VAST_INSTALL_COMMAND='PASTE_VAST_COMMAND_HERE' VAST_PORT_RANGE='40000-40019' bash install/main.sh --profile fresh-basic --resume-after-reboot --apply
+bash install/main.sh --resume
 ```
 
-Resume after NVIDIA reboot:
-
-```bash
-sudo VAST_INSTALL_COMMAND='PASTE_VAST_COMMAND_HERE' VAST_PORT_RANGE='40000-40019' bash install/main.sh --profile fresh-basic --resume-after-nvidia-reboot --apply
-```
+The script saves its own resume state during phase 1 and phase 2, so you no longer need to paste long resume commands.
 
 Direct phase-3 style apply example:
 

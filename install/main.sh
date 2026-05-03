@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_DIR="${HOME}/.config/vast-host-installer"
+STATE_FILE="${STATE_DIR}/resume.env"
 PROFILE="fresh-basic"
 WITH_RIG_MONITOR=0
 WITH_GPUTEMPS=0
@@ -9,6 +11,7 @@ WITH_FLEET_HEALTH=0
 PLAN_ONLY=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
+RESUME_MODE=0
 RESUME_AFTER_REBOOT=0
 RESUME_AFTER_NVIDIA_REBOOT=0
 CONFIRM_DISK=""
@@ -50,6 +53,7 @@ Options:
   --detect-only
   --plan-only
   --first-run
+  --resume
   --resume-after-reboot
   --resume-after-nvidia-reboot
   --apply
@@ -103,6 +107,10 @@ while [[ $# -gt 0 ]]; do
       FIRST_BOOT_MODE=1
       shift
       ;;
+    --resume)
+      RESUME_MODE=1
+      shift
+      ;;
     --resume-after-reboot)
       RESUME_AFTER_REBOOT=1
       shift
@@ -125,7 +133,44 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+save_resume_state() {
+  local next_phase="$1"
+  mkdir -p "$STATE_DIR"
+  cat > "$STATE_FILE" <<EOF
+PROFILE='${PROFILE}'
+VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}'
+VAST_PORT_RANGE='${VAST_PORT_RANGE}'
+NEXT_PHASE='${next_phase}'
+EOF
+}
+
+load_resume_state() {
+  [[ -f "$STATE_FILE" ]] || die "No saved resume state found. Run --first-run first."
+  # shellcheck disable=SC1090
+  source "$STATE_FILE"
+  PROFILE="${PROFILE:-fresh-basic}"
+  VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
+  VAST_PORT_RANGE="${VAST_PORT_RANGE:-40000-40019}"
+  case "${NEXT_PHASE:-}" in
+    after-reboot)
+      RESUME_AFTER_REBOOT=1
+      APPLY_CHANGES=1
+      ;;
+    after-nvidia-reboot)
+      RESUME_AFTER_NVIDIA_REBOOT=1
+      APPLY_CHANGES=1
+      ;;
+    *)
+      die "Saved resume state is invalid or missing NEXT_PHASE."
+      ;;
+  esac
+}
+
 ensure_basic_tools
+
+if [[ "$RESUME_MODE" -eq 1 ]]; then
+  load_resume_state
+fi
 
 if [[ "$DETECT_ONLY" -eq 1 ]]; then
   print_detection_summary
@@ -176,13 +221,14 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
     esac
   fi
   run_base_system_prep_from_known_good_flow
+  save_resume_state after-reboot
 
   cat <<EOF
 
 $(printf '\033[1;32m✓ Phase 1 complete.\033[0m')
 Reboot the machine, then run:
 
-sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-reboot --apply
+bash install/main.sh --resume
 
 EOF
   exit 0
@@ -192,12 +238,13 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-reboot requires --apply"
   banner "Phase 2 - NVIDIA Open Driver Setup"
   install_nvidia_590_open_from_known_good_flow
+  save_resume_state after-nvidia-reboot
   cat <<EOF
 
 $(printf '\033[1;32m✓ Phase 2 complete.\033[0m')
 Reboot the machine again, then run:
 
-sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-nvidia-reboot --apply
+bash install/main.sh --resume
 
 EOF
   exit 0
