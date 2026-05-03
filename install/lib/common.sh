@@ -24,9 +24,19 @@ else
 fi
 
 banner() {
-  printf '\n%b╔════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '\n%b╔══════════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
   printf '%b║ %s%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
-  printf '%b╚════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '%b╚══════════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+}
+
+hero_banner() {
+  printf '\n%b%s%b\n' "$C_MAGENTA$C_BOLD" '██╗   ██╗ █████╗ ███████╗████████╗' "$C_RESET"
+  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '██║   ██║██╔══██╗██╔════╝╚══██╔══╝' "$C_RESET"
+  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '██║   ██║███████║███████╗   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '╚██╗ ██╔╝██╔══██║╚════██║   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" ' ╚████╔╝ ██║  ██║███████║   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝   ' "$C_RESET"
+  printf '%b%s%b\n\n' "$C_DIM" 'Host Installer • clean phased setup for Vast rigs' "$C_RESET"
 }
 
 command_box() {
@@ -57,6 +67,10 @@ die() {
 
 prompt_box() {
   printf '\n%b%s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
+}
+
+question() {
+  printf '\n%b? %s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
 }
 
 summary_box() {

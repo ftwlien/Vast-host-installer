@@ -42,9 +42,11 @@ prompt_password_twice() {
 }
 
 run_first_boot_questionnaire() {
-  banner "Vast Host Installer - First Run Setup"
-  step "We will ask a few simple questions, then prepare the machine in phases."
+  hero_banner
+  banner "First Run Setup"
+  step "Quick setup first. Heavy lifting after that."
 
+  question "Machine identity"
   read -r -p "Final hostname: " FIRST_BOOT_HOSTNAME
   [[ -n "$FIRST_BOOT_HOSTNAME" ]] || die "Hostname is required"
 
@@ -52,10 +54,12 @@ run_first_boot_questionnaire() {
   [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Final username is required"
   prompt_password_twice
 
+  question "Vast bootstrap"
   prompt_box "Paste the full Vast install command from Vast.ai below (for example the wget/python command)."
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
+  question "Optional extras"
   if prompt_yes_no "Install Vast CLI locally?" "y"; then
     FIRST_BOOT_INSTALL_VAST_CLI=1
   fi

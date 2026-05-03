@@ -165,6 +165,10 @@ load_resume_state() {
 
 ensure_basic_tools
 
+if [[ "$FIRST_BOOT_MODE" -ne 1 ]]; then
+  hero_banner
+fi
+
 if [[ "$RESUME_MODE" -eq 1 ]]; then
   load_resume_state
 fi
@@ -285,4 +289,14 @@ if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
 fi
 
 verify_host_state
-log "install engine skeleton completed"
+banner "Install Complete"
+summary_box "What was done" \
+  "Profile applied: $PROFILE" \
+  "Vast install flow finished" \
+  "Requested extras were installed" \
+  "Final verification completed"
+if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+  echo "Optional next step: set your Vast API key when you are ready."
+  command_box "vastai set api-key YOUR_API_KEY && vastai show user"
+fi
+success "Host setup finished"
