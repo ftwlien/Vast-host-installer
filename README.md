@@ -112,20 +112,28 @@ This mode now:
 - asks for Vast host port range
 - asks for the full Vast install command from Vast.ai
 - infers a profile
-- applies storage prep + full system updates first
-- then tells you to reboot and resume with the printed command
-- resume phase runs NVIDIA setup first, then the Vast install command
+- phase 1: applies storage prep + full system updates
+- then tells you to reboot
+- phase 2 after reboot: installs/configures NVIDIA open drivers
+- then tells you to reboot again
+- phase 3 after second reboot: verifies NVIDIA, runs the Vast install command, and finishes setup
 
-Resume after reboot:
+Resume after first reboot:
 
 ```bash
 sudo VAST_INSTALL_COMMAND='PASTE_VAST_COMMAND_HERE' VAST_PORT_RANGE='40000-40019' bash install/main.sh --profile fresh-basic --resume-after-reboot --apply
 ```
 
-Direct apply for real:
+Resume after NVIDIA reboot:
 
 ```bash
-bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --vast-port-range 40000-40019 --confirm-disk /dev/YOUR_DATA_DISK --resume-after-reboot --apply
+sudo VAST_INSTALL_COMMAND='PASTE_VAST_COMMAND_HERE' VAST_PORT_RANGE='40000-40019' bash install/main.sh --profile fresh-basic --resume-after-nvidia-reboot --apply
+```
+
+Direct phase-3 style apply example:
+
+```bash
+bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --vast-port-range 40000-40019 --confirm-disk /dev/YOUR_DATA_DISK --resume-after-nvidia-reboot --apply
 ```
 
 For destructive two-disk storage apply, the installer now requires the exact target disk to be confirmed explicitly.

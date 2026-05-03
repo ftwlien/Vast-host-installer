@@ -51,10 +51,9 @@ emit_plan_preview() {
       ;;
   esac
 
-  echo "System prep: apt update/upgrade/dist-upgrade, disable unattended apt jobs, install base packages"
-  echo "Phase 2 after reboot: NVIDIA setup first, then run the provided Vast install command"
+  echo "Phase 1: system prep = apt update/upgrade/dist-upgrade, disable unattended apt jobs, install base packages"
+  echo "Phase 2 after reboot: install/configure NVIDIA open drivers, then reboot again"
+  echo "Phase 3 after second reboot: verify nvidia-smi, run Vast install command, set host port range, then verify services"
   echo "Docker: not preinstalled by default; let Vast setup own Docker unless fallback is needed"
-  echo "Vast: run Vast host installer command and set host port range to ${VAST_PORT_RANGE:-40000-40019}"
-  echo "Verify: nvidia-smi, docker/vastai status if present, host port range, console reachability"
-  echo "Reboot expectation: required between prep phase and Vast/NVIDIA phase"
+  echo "Reboot expectation: one reboot after prep, one reboot after NVIDIA setup"
 }

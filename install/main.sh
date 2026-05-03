@@ -10,6 +10,7 @@ PLAN_ONLY=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
 RESUME_AFTER_REBOOT=0
+RESUME_AFTER_NVIDIA_REBOOT=0
 CONFIRM_DISK=""
 VAST_API_KEY="${VAST_API_KEY:-}"
 VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
@@ -50,6 +51,7 @@ Options:
   --plan-only
   --first-run
   --resume-after-reboot
+  --resume-after-nvidia-reboot
   --apply
 EOF
 }
@@ -103,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --resume-after-reboot)
       RESUME_AFTER_REBOOT=1
+      shift
+      ;;
+    --resume-after-nvidia-reboot)
+      RESUME_AFTER_NVIDIA_REBOOT=1
       shift
       ;;
     --apply)
@@ -180,6 +186,21 @@ fi
 
 if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-reboot requires --apply"
+  log "phase 2: NVIDIA open driver install + config"
+  install_nvidia_590_open_from_known_good_flow
+  cat <<EOF
+
+Phase 2 complete.
+Now reboot the machine again, then run:
+
+sudo VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}' VAST_PORT_RANGE='${VAST_PORT_RANGE}' bash $ROOT_DIR/install/main.sh --profile ${PROFILE} --resume-after-nvidia-reboot --apply
+
+EOF
+  exit 0
+fi
+
+if [[ "$RESUME_AFTER_NVIDIA_REBOOT" -eq 1 ]]; then
+  [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-nvidia-reboot requires --apply"
 fi
 
 if [[ "$APPLY_CHANGES" -ne 1 ]]; then
