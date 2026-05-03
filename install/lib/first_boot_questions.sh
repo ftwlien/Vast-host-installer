@@ -2,7 +2,6 @@
 set -euo pipefail
 
 FIRST_BOOT_INSTALL_RIG_MONITOR=0
-FIRST_BOOT_INSTALL_GPUTEMPS=0
 FIRST_BOOT_INSTALL_FLEET_HEALTH=0
 FIRST_BOOT_HOSTNAME=""
 FIRST_BOOT_VAST_INSTALL_COMMAND=""
@@ -56,11 +55,8 @@ run_first_boot_questionnaire() {
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
-  if prompt_yes_no "Install rig-monitor?" "y"; then
+  if prompt_yes_no "Install rig-monitor (includes GPU temp helper setup)?" "y"; then
     FIRST_BOOT_INSTALL_RIG_MONITOR=1
-  fi
-  if prompt_yes_no "Install gputemps?" "y"; then
-    FIRST_BOOT_INSTALL_GPUTEMPS=1
   fi
   if prompt_yes_no "Install fleet-health prereqs?" "n"; then
     FIRST_BOOT_INSTALL_FLEET_HEALTH=1
@@ -70,7 +66,6 @@ run_first_boot_questionnaire() {
 emit_first_boot_answers() {
   echo "FIRST_BOOT_HOSTNAME=$FIRST_BOOT_HOSTNAME"
   echo "FIRST_BOOT_INSTALL_RIG_MONITOR=$FIRST_BOOT_INSTALL_RIG_MONITOR"
-  echo "FIRST_BOOT_INSTALL_GPUTEMPS=$FIRST_BOOT_INSTALL_GPUTEMPS"
   echo "FIRST_BOOT_INSTALL_FLEET_HEALTH=$FIRST_BOOT_INSTALL_FLEET_HEALTH"
   echo "FIRST_BOOT_USERNAME=$FIRST_BOOT_USERNAME"
 }

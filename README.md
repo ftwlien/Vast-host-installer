@@ -37,7 +37,7 @@ Build a trusted post-Ubuntu installer that can:
 - install NVIDIA
 - install Vast
 - install Docker manually only if Vast setup explicitly needs it
-- optionally install rig-monitor / gputemps / fleet-health extras
+- optionally install rig-monitor (including GPU temp helper setup) / fleet-health extras
 - verify the final state
 
 ## Quick usage

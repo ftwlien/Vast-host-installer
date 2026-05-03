@@ -6,7 +6,6 @@ STATE_DIR="${HOME}/.config/vast-host-installer"
 STATE_FILE="${STATE_DIR}/resume.env"
 PROFILE="fresh-basic"
 WITH_RIG_MONITOR=0
-WITH_GPUTEMPS=0
 WITH_FLEET_HEALTH=0
 PLAN_ONLY=0
 APPLY_CHANGES=0
@@ -44,7 +43,6 @@ Usage: bash install/main.sh [options]
 Options:
   --profile <name>
   --with-rig-monitor
-  --with-gputemps
   --with-fleet-health
   --vast-api-key <key>
   --vast-install-command <cmd>
@@ -68,10 +66,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --with-rig-monitor)
       WITH_RIG_MONITOR=1
-      shift
-      ;;
-    --with-gputemps)
-      WITH_GPUTEMPS=1
       shift
       ;;
     --with-fleet-health)
@@ -189,7 +183,6 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   PROFILE="$(infer_profile_from_layout)"
   VAST_INSTALL_COMMAND="$FIRST_BOOT_VAST_INSTALL_COMMAND"
   WITH_RIG_MONITOR="$FIRST_BOOT_INSTALL_RIG_MONITOR"
-  WITH_GPUTEMPS="$FIRST_BOOT_INSTALL_GPUTEMPS"
   WITH_FLEET_HEALTH="$FIRST_BOOT_INSTALL_FLEET_HEALTH"
 
   set_final_hostname "$FIRST_BOOT_HOSTNAME"
@@ -266,9 +259,6 @@ esac
 
 if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
   install_rig_monitor_placeholder
-fi
-if [[ "$WITH_GPUTEMPS" -eq 1 ]]; then
-  install_gputemps_placeholder
 fi
 if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
   install_fleet_health_placeholder
