@@ -76,6 +76,7 @@ autoinstall:
         id: docker-mount
         path: /var/lib/docker
         device: docker-format
+        options: defaults,prjquota
   late-commands:
     - ['mkdir', '-p', '/target/opt/vast-host-installer']
     - ['tar', '-xzf', '/cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz', '-C', '/target/opt/vast-host-installer']

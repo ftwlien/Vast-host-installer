@@ -106,6 +106,7 @@ storage:
       id: docker-mount
       path: /var/lib/docker
       device: docker-format
+      options: defaults,prjquota
 """.strip()
 
 
@@ -173,6 +174,7 @@ storage:
       id: docker-mount
       path: /var/lib/docker
       device: docker-format
+      options: defaults,prjquota
 """.strip()
 
 
