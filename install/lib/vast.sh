@@ -15,8 +15,13 @@ install_vast_host_from_known_good_flow() {
   sudo apt install -y python3 wget netcat-openbsd
 
   if [[ -n "$install_cmd" ]]; then
-    log "running provided Vast install command"
-    bash -lc "$install_cmd"
+    local vast_tmp
+    vast_tmp="$(mktemp -d /tmp/vast-install.XXXXXX)"
+    log "running provided Vast install command in $vast_tmp"
+    (
+      cd "$vast_tmp"
+      bash -lc "$install_cmd"
+    )
   else
     [[ -n "$api_key" ]] || die "Provide either VAST_INSTALL_COMMAND or VAST_API_KEY."
     rm -f /tmp/vast-install.sh

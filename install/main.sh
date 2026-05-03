@@ -138,6 +138,7 @@ save_resume_state() {
   mkdir -p "$STATE_DIR"
   cat > "$STATE_FILE" <<EOF
 PROFILE='${PROFILE}'
+ROOT_DIR='${ROOT_DIR}'
 VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}'
 VAST_PORT_RANGE='${VAST_PORT_RANGE}'
 NEXT_PHASE='${next_phase}'
@@ -149,6 +150,7 @@ load_resume_state() {
   # shellcheck disable=SC1090
   source "$STATE_FILE"
   PROFILE="${PROFILE:-fresh-basic}"
+  ROOT_DIR="${ROOT_DIR:-$ROOT_DIR}"
   VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
   VAST_PORT_RANGE="${VAST_PORT_RANGE:-40000-40019}"
   case "${NEXT_PHASE:-}" in
@@ -228,6 +230,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
 $(printf '\033[1;32m✓ Phase 1 complete.\033[0m')
 Reboot the machine, then run:
 
+cd $ROOT_DIR
 bash install/main.sh --resume
 
 EOF
@@ -244,6 +247,7 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
 $(printf '\033[1;32m✓ Phase 2 complete.\033[0m')
 Reboot the machine again, then run:
 
+cd $ROOT_DIR
 bash install/main.sh --resume
 
 EOF
