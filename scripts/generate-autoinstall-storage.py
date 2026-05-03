@@ -2,14 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-MARKER_BEGIN = '# VAST_STORAGE_POLICY_BEGIN'
-MARKER_END = '# VAST_STORAGE_POLICY_END'
+import yaml
 
 
 @dataclass(frozen=True)
@@ -191,23 +189,14 @@ def emit_storage_yaml(mode: str) -> str:
 
 
 def rewrite_autoinstall(path: Path, mode: str) -> None:
-    replacement = emit_storage_yaml(mode)
-    text = path.read_text()
-    pattern = re.compile(
-        rf'(?ms)^([ \t]*){re.escape(MARKER_BEGIN)}\n.*?^\1{re.escape(MARKER_END)}$'
-    )
-    match = pattern.search(text)
-    if not match:
-        raise RuntimeError(
-            f'could not find storage policy markers {MARKER_BEGIN!r} .. {MARKER_END!r} in {path}'
-        )
-    indent = match.group(1)
-    indented_replacement = '\n'.join(
-        f'{indent}{line}' if line else line
-        for line in replacement.splitlines()
-    )
-    new_block = f'{indent}{MARKER_BEGIN}\n{indented_replacement}\n{indent}{MARKER_END}'
-    path.write_text(pattern.sub(new_block, text, count=1))
+    replacement = yaml.safe_load(emit_storage_yaml(mode))
+    data = yaml.safe_load(path.read_text())
+    if not isinstance(data, dict) or 'autoinstall' not in data:
+        raise RuntimeError(f'expected top-level autoinstall mapping in {path}')
+    if not isinstance(data['autoinstall'], dict):
+        raise RuntimeError(f'expected autoinstall section to be a mapping in {path}')
+    data['autoinstall']['storage'] = replacement['storage']
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
 
 
 def main() -> int:

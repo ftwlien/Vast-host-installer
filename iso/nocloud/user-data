@@ -23,7 +23,6 @@ autoinstall:
         shell: /bin/bash
         groups: [adm, sudo]
         sudo: ALL=(ALL) NOPASSWD:ALL
-  # VAST_STORAGE_POLICY_BEGIN
   storage:
     swap:
       size: 0
@@ -79,10 +78,9 @@ autoinstall:
         id: docker-mount
         path: /var/lib/docker
         device: docker-format
-  # VAST_STORAGE_POLICY_END
   late-commands:
     - ['mkdir', '-p', '/target/opt/vast-host-installer']
     - ['tar', '-xzf', '/cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz', '-C', '/target/opt/vast-host-installer']
-    - ['curtin', 'in-target', '--target=/target', '--', 'install', '-Dm0644', '/opt/vast-host-installer/systemd/vast-host-installer-first-run-notice.service', '/etc/systemd/system/vast-host-installer-first-run-notice.service']
+    - ['cp', '/target/opt/vast-host-installer/systemd/vast-host-installer-first-run-notice.service', '/target/etc/systemd/system/vast-host-installer-first-run-notice.service']
     - ['curtin', 'in-target', '--target=/target', '--', 'chmod', '+x', '/opt/vast-host-installer/bin/vast-host-installer']
     - ['curtin', 'in-target', '--target=/target', '--', 'systemctl', 'enable', 'vast-host-installer-first-run-notice.service']

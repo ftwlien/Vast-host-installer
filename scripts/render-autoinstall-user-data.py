@@ -74,12 +74,6 @@ def main() -> int:
     )
 
     storage_block = indented_storage_yaml
-    if args.mode == 'auto':
-        storage_block = (
-            '  # VAST_STORAGE_POLICY_BEGIN\n'
-            f'{indented_storage_yaml}\n'
-            '  # VAST_STORAGE_POLICY_END'
-        )
 
     rendered = f'''#cloud-config
 autoinstall:
