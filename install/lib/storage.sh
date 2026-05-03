@@ -10,6 +10,29 @@ storage_partition_for_disk() {
   fi
 }
 
+storage_already_correct() {
+  local layout root_size docker_source root_source
+  layout="$(classify_layout)"
+  root_source="$(findmnt -n -o SOURCE / 2>/dev/null || true)"
+  docker_source="$(findmnt -n -o SOURCE /var/lib/docker 2>/dev/null || true)"
+  root_size="$(df -BG --output=size / 2>/dev/null | tail -n1 | tr -dc '0-9')"
+
+  case "$layout" in
+    single-disk)
+      [[ -n "$root_size" && "$root_size" -ge 95 && "$root_size" -le 105 ]] || return 1
+      [[ -n "$docker_source" && "$docker_source" != "$root_source" ]] || return 1
+      return 0
+      ;;
+    two-disk)
+      [[ -n "$docker_source" && "$docker_source" != "$root_source" ]] || return 1
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 prompt_storage_confirmation() {
   local prompt reply
   prompt="$1"

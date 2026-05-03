@@ -160,17 +160,21 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   emit_plan_preview "$PROFILE"
 
   log "phase 1: storage + full system prep"
-  case "$PROFILE" in
-    fresh-basic|fresh-single-disk)
-      ensure_single_disk_storage_layout
-      ;;
-    fresh-two-disk)
-      ensure_two_disk_storage_layout
-      ;;
-    *)
-      die "Unknown profile for first-run prep phase: $PROFILE"
-      ;;
-  esac
+  if storage_already_correct; then
+    log "storage layout already matches the intended plan; skipping storage changes"
+  else
+    case "$PROFILE" in
+      fresh-basic|fresh-single-disk)
+        ensure_single_disk_storage_layout
+        ;;
+      fresh-two-disk)
+        ensure_two_disk_storage_layout
+        ;;
+      *)
+        die "Unknown profile for first-run prep phase: $PROFILE"
+        ;;
+    esac
+  fi
   run_base_system_prep_from_known_good_flow
 
   cat <<EOF
