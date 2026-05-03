@@ -113,6 +113,13 @@ This mode now:
 - lets the Vast installer itself handle the host port range prompt
 - can optionally install the Vast CLI locally before the other extras
 - can optionally install Fleet Health Check prerequisites from the public repo
+
+If you choose the optional Vast CLI install, the CLI is installed on the host for later use. After the full host install is finished, you can set your API key and verify it with:
+
+```bash
+vastai set api-key YOUR_API_KEY
+vastai show user
+```
 - detects whether the machine is single-disk or two-disk
 - explains the storage plan in plain English and asks for confirmation before destructive disk changes
 - phase 1: applies storage prep + full system updates
