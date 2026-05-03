@@ -3,12 +3,21 @@ set -euo pipefail
 
 install_vast_cli() {
   banner "Optional Extra - Vast CLI"
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    step "Installing python3-pip"
+    sudo apt-get update
+    sudo apt-get install -y python3-pip
+  fi
+  step "Installing Vast CLI"
   python3 -m pip install --user vastai
   if ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "${HOME}/.bashrc" 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
   fi
   export PATH="${HOME}/.local/bin:${PATH}"
-  command -v vastai >/dev/null 2>&1 || die "Vast CLI install completed but 'vastai' is still not on PATH"
+  if [[ -x "${HOME}/.local/bin/vastai" ]]; then
+    hash -r || true
+  fi
+  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after pip install"
   success "Vast CLI installed"
 }
 
