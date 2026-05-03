@@ -39,7 +39,10 @@ else
 fi
 python3 "$ROOT_DIR/scripts/render-autoinstall-user-data.py" "${RENDER_ARGS[@]}" > "$NOCLOUD_DIR/user-data"
 printf 'instance-id: vast-host-installer\nlocal-hostname: vast-bootstrap\n' > "$NOCLOUD_DIR/meta-data"
+mkdir -p "$OVERLAY_DIR/scripts"
 cp "$PAYLOAD" "$OVERLAY_DIR/vast-host-installer-payload.tgz"
+cp "$ROOT_DIR/scripts/generate-autoinstall-storage.py" "$OVERLAY_DIR/scripts/generate-autoinstall-storage.py"
+chmod +x "$OVERLAY_DIR/scripts/generate-autoinstall-storage.py"
 
 cat > "$BUILD_DIR/README.txt" <<EOF
 ISO scaffold prepared.
