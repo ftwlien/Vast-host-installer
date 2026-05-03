@@ -18,7 +18,7 @@ emit_plan_preview() {
 
   case "$layout" in
     single-disk)
-      echo "PLAN_STORAGE=keep OS + Docker/Vast on root disk"
+      echo "PLAN_STORAGE=use 100G for / and the rest for /var/lib/docker on the root disk"
       ;;
     two-disk)
       echo "PLAN_STORAGE=keep OS on root disk; use largest non-root disk for Docker/Vast data"
@@ -40,7 +40,7 @@ emit_plan_preview() {
 
   case "$layout" in
     single-disk)
-      echo "Storage action: keep Docker/Vast on the existing root disk"
+      echo "Storage action: shrink root filesystem to 100G and use the remaining space on the same disk for /var/lib/docker"
       ;;
     two-disk)
       echo "Storage action: create one XFS partition on ${data_disk}, mount it at /var/lib/docker, persist in /etc/fstab"
@@ -52,9 +52,9 @@ emit_plan_preview() {
   esac
 
   echo "System prep: apt update/upgrade/dist-upgrade, disable unattended apt jobs, install base packages"
-  echo "NVIDIA: install known-good 590-open baseline module path"
-  echo "Docker: install Docker CE + enable service + add target user to docker group"
-  echo "Vast: run Vast host installer with provided API key and set host port range to ${VAST_PORT_RANGE:-40000-40019}"
-  echo "Verify: nvidia-smi, docker active, nvidia runtime, vastai active, host port range, console reachability"
-  echo "Reboot expectation: likely required after NVIDIA driver install"
+  echo "Phase 2 after reboot: NVIDIA setup first, then run the provided Vast install command"
+  echo "Docker: not preinstalled by default; let Vast setup own Docker unless fallback is needed"
+  echo "Vast: run Vast host installer command and set host port range to ${VAST_PORT_RANGE:-40000-40019}"
+  echo "Verify: nvidia-smi, docker/vastai status if present, host port range, console reachability"
+  echo "Reboot expectation: required between prep phase and Vast/NVIDIA phase"
 }
