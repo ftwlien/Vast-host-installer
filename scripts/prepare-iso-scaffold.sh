@@ -43,6 +43,13 @@ mkdir -p "$OVERLAY_DIR/scripts"
 cp "$PAYLOAD" "$OVERLAY_DIR/vast-host-installer-payload.tgz"
 cp "$ROOT_DIR/scripts/generate-autoinstall-storage.py" "$OVERLAY_DIR/scripts/generate-autoinstall-storage.py"
 chmod +x "$OVERLAY_DIR/scripts/generate-autoinstall-storage.py"
+AUTO_RENDER_ARGS=(--mode auto --hostname vast-bootstrap --username vastbootstrap)
+if [[ -n "$PASSWORD_HASH" ]]; then
+  AUTO_RENDER_ARGS+=(--password-hash "$PASSWORD_HASH")
+else
+  AUTO_RENDER_ARGS+=(--password "$PASSWORD")
+fi
+python3 "$ROOT_DIR/scripts/render-autoinstall-user-data.py" "${AUTO_RENDER_ARGS[@]}" > "$OVERLAY_DIR/autoinstall-auto.yaml"
 
 cat > "$BUILD_DIR/README.txt" <<EOF
 ISO scaffold prepared.

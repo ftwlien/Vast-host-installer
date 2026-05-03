@@ -7,8 +7,6 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
-
 
 @dataclass(frozen=True)
 class Disk:
@@ -189,14 +187,7 @@ def emit_storage_yaml(mode: str) -> str:
 
 
 def rewrite_autoinstall(path: Path, mode: str) -> None:
-    replacement = yaml.safe_load(emit_storage_yaml(mode))
-    data = yaml.safe_load(path.read_text())
-    if not isinstance(data, dict) or 'autoinstall' not in data:
-        raise RuntimeError(f'expected top-level autoinstall mapping in {path}')
-    if not isinstance(data['autoinstall'], dict):
-        raise RuntimeError(f'expected autoinstall section to be a mapping in {path}')
-    data['autoinstall']['storage'] = replacement['storage']
-    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    path.write_text(emit_storage_yaml(mode) + '\n')
 
 
 def main() -> int:

@@ -17,17 +17,43 @@ def run_storage_generator(mode: str) -> str:
     ], text=True)
 
 
+def build_autoinstall_yaml(mode: str, hostname: str, username: str, password_hash: str) -> str:
+    storage_yaml = run_storage_generator(mode).rstrip()
+    indented_storage_yaml = '\n'.join(
+        ('  ' + line) if line.strip() else line
+        for line in storage_yaml.splitlines()
+    )
+    return f'''#cloud-config
+autoinstall:
+  version: 1
+  identity:
+    hostname: {hostname}
+    username: {username}
+    password: "{password_hash}"
+  ssh:
+    install-server: true
+    allow-pw: true
+  user-data:
+    disable_root: true
+    users:
+      - default
+      - name: {username}
+        gecos: Vast Bootstrap
+        passwd: "{password_hash}"
+        lock_passwd: false
+        shell: /bin/bash
+        groups: [adm, sudo]
+        sudo: ALL=(ALL) NOPASSWD:ALL
+{indented_storage_yaml}
+{render_late_commands()}'''
+
+
 def render_early_commands(mode: str) -> str:
     if mode != 'auto':
         return ''
 
-    command = (
-        "python3 /autoinstall.yaml.vast-storage.py --rewrite-autoinstall /autoinstall.yaml --mode auto"
-    )
-    return f'''  early-commands:
-    - ['cp', '/cdrom/opt-vast-host-installer-overlay/scripts/generate-autoinstall-storage.py', '/autoinstall.yaml.vast-storage.py']
-    - ['chmod', '+x', '/autoinstall.yaml.vast-storage.py']
-    - ['sh', '-c', '{command}']
+    return '''  early-commands:
+    - ['cp', '/cdrom/opt-vast-host-installer-overlay/autoinstall-auto.yaml', '/autoinstall.yaml']
 '''
 
 
@@ -59,8 +85,6 @@ def main() -> int:
     parser.add_argument('--password', default='')
     args = parser.parse_args()
 
-    storage_yaml = run_storage_generator(args.mode).rstrip()
-
     password_hash = args.password_hash
     if not password_hash:
         if args.password:
@@ -68,36 +92,9 @@ def main() -> int:
         else:
             password_hash = 'REPLACE_ME_WITH_A_REAL_HASH'
 
-    indented_storage_yaml = '\n'.join(
-        ('  ' + line) if line.strip() else line
-        for line in storage_yaml.splitlines()
-    )
-
-    storage_block = indented_storage_yaml
-
-    rendered = f'''#cloud-config
-autoinstall:
-  version: 1
-  identity:
-    hostname: {args.hostname}
-    username: {args.username}
-    password: "{password_hash}"
-  ssh:
-    install-server: true
-    allow-pw: true
-{render_early_commands(args.mode)}  user-data:
-    disable_root: true
-    users:
-      - default
-      - name: {args.username}
-        gecos: Vast Bootstrap
-        passwd: "{password_hash}"
-        lock_passwd: false
-        shell: /bin/bash
-        groups: [adm, sudo]
-        sudo: ALL=(ALL) NOPASSWD:ALL
-{storage_block}
-{render_late_commands()}'''
+    rendered = build_autoinstall_yaml(args.mode, args.hostname, args.username, password_hash)
+    if args.mode == 'auto':
+        rendered = rendered.replace('  ssh:\n    install-server: true\n    allow-pw: true\n', '  ssh:\n    install-server: true\n    allow-pw: true\n' + render_early_commands(args.mode), 1)
     sys.stdout.write(rendered)
     return 0
 
