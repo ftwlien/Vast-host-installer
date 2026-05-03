@@ -17,6 +17,30 @@ def run_storage_generator(mode: str) -> str:
     ], text=True)
 
 
+def render_early_commands(mode: str) -> str:
+    if mode != 'auto':
+        return ''
+
+    command = (
+        "python3 /autoinstall.yaml.vast-storage.py --rewrite-autoinstall /autoinstall.yaml --mode auto"
+    )
+    return f'''  early-commands:
+    - ['cp', '/cdrom/opt-vast-host-installer-overlay/scripts/generate-autoinstall-storage.py', '/autoinstall.yaml.vast-storage.py']
+    - ['chmod', '+x', '/autoinstall.yaml.vast-storage.py']
+    - ['sh', '-c', '{command}']
+'''
+
+
+def render_late_commands() -> str:
+    return '''  late-commands:
+    - ['mkdir', '-p', '/target/opt/vast-host-installer']
+    - ['tar', '-xzf', '/cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz', '-C', '/target/opt/vast-host-installer']
+    - ['cp', '/target/opt/vast-host-installer/systemd/vast-host-installer-first-run-notice.service', '/target/etc/systemd/system/vast-host-installer-first-run-notice.service']
+    - ['curtin', 'in-target', '--target=/target', '--', 'chmod', '+x', '/opt/vast-host-installer/bin/vast-host-installer']
+    - ['curtin', 'in-target', '--target=/target', '--', 'systemctl', 'enable', 'vast-host-installer-first-run-notice.service']
+'''
+
+
 def sha512_crypt_fallback(password: str) -> str:
     salt = hashlib.sha256(password.encode()).hexdigest()[:16]
     try:
@@ -49,6 +73,14 @@ def main() -> int:
         for line in storage_yaml.splitlines()
     )
 
+    storage_block = indented_storage_yaml
+    if args.mode == 'auto':
+        storage_block = (
+            '  # VAST_STORAGE_POLICY_BEGIN\n'
+            f'{indented_storage_yaml}\n'
+            '  # VAST_STORAGE_POLICY_END'
+        )
+
     rendered = f'''#cloud-config
 autoinstall:
   version: 1
@@ -59,7 +91,7 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
-  user-data:
+{render_early_commands(args.mode)}  user-data:
     disable_root: true
     users:
       - default
@@ -70,8 +102,8 @@ autoinstall:
         shell: /bin/bash
         groups: [adm, sudo]
         sudo: ALL=(ALL) NOPASSWD:ALL
-{indented_storage_yaml}
-'''
+{storage_block}
+{render_late_commands()}'''
     sys.stdout.write(rendered)
     return 0
 

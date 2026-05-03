@@ -4,48 +4,85 @@ autoinstall:
   identity:
     hostname: vast-bootstrap
     username: vastbootstrap
-    password: "REPLACE_ME_WITH_A_REAL_HASH"
+    password: "$6$4293266d1f5ff437$n.XF9MIo4EcJB/KWT0gt2jbVG0Mxhb84ZmgPNzDjLvxz6SJzc9xMDmlS4Z7PqFxQFnvtrPi202hjqrnEVBkkX/"
   ssh:
     install-server: true
     allow-pw: true
-  packages:
-    - openssh-server
-    - curl
-    - git
-    - python3
-    - sudo
-  apt:
-    preserve_sources_list: false
-    geoip: false
-    primary:
-      - arches: [default]
-        uri: http://archive.ubuntu.com/ubuntu
-      - arches: [arm64, armhf, ppc64el, riscv64, s390x]
-        uri: http://ports.ubuntu.com/ubuntu-ports
+  early-commands:
+    - ['cp', '/cdrom/opt-vast-host-installer-overlay/scripts/generate-autoinstall-storage.py', '/autoinstall.yaml.vast-storage.py']
+    - ['chmod', '+x', '/autoinstall.yaml.vast-storage.py']
+    - ['sh', '-c', 'python3 /autoinstall.yaml.vast-storage.py --rewrite-autoinstall /autoinstall.yaml --mode auto']
+  user-data:
+    disable_root: true
+    users:
+      - default
+      - name: vastbootstrap
+        gecos: Vast Bootstrap
+        passwd: "$6$4293266d1f5ff437$n.XF9MIo4EcJB/KWT0gt2jbVG0Mxhb84ZmgPNzDjLvxz6SJzc9xMDmlS4Z7PqFxQFnvtrPi202hjqrnEVBkkX/"
+        lock_passwd: false
+        shell: /bin/bash
+        groups: [adm, sudo]
+        sudo: ALL=(ALL) NOPASSWD:ALL
+  # VAST_STORAGE_POLICY_BEGIN
   storage:
+    swap:
+      size: 0
     config:
       - type: disk
         id: os-disk
-        path: /dev/sda
+        match:
+          size: smallest
         ptable: gpt
         wipe: superblock-recursive
+        preserve: false
         grub_device: true
       - type: partition
-        id: os-disk-part
+        id: bios-boot
+        device: os-disk
+        size: 1048576
+        flag: bios_grub
+      - type: partition
+        id: efi-partition
+        device: os-disk
+        size: 550M
+        flag: boot
+        grub_device: true
+      - type: format
+        id: efi-format
+        volume: efi-partition
+        fstype: fat32
+      - type: mount
+        id: efi-mount
+        path: /boot/efi
+        device: efi-format
+      - type: partition
+        id: root-partition
+        device: os-disk
+        size: 100G
+      - type: format
+        id: root-format
+        volume: root-partition
+        fstype: ext4
+      - type: mount
+        id: root-mount
+        path: /
+        device: root-format
+      - type: partition
+        id: docker-partition
         device: os-disk
         size: -1
       - type: format
-        id: os-format
-        volume: os-disk-part
-        fstype: ext4
+        id: docker-format
+        volume: docker-partition
+        fstype: xfs
       - type: mount
-        id: os-mount
-        device: os-format
-        path: /
+        id: docker-mount
+        path: /var/lib/docker
+        device: docker-format
+  # VAST_STORAGE_POLICY_END
   late-commands:
-    - [mkdir, -p, /target/opt/vast-host-installer]
-    - [cp, /cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz, /target/opt/vast-host-installer/]
-    - [curtin, in-target, --target=/target, --, tar, -xzf, /opt/vast-host-installer/vast-host-installer-payload.tgz, -C, /opt/vast-host-installer]
-    - [curtin, in-target, --target=/target, --, rm, -f, /opt/vast-host-installer/vast-host-installer-payload.tgz]
-    - [curtin, in-target, --target=/target, --, chmod, +x, /opt/vast-host-installer/bin/vast-host-installer]
-    - [curtin, in-target, --target=/target, --, /bin/sh, -c, 'echo "Run: sudo /opt/vast-host-installer/bin/vast-host-installer --first-run" > /etc/motd']
+    - ['mkdir', '-p', '/target/opt/vast-host-installer']
+    - ['tar', '-xzf', '/cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz', '-C', '/target/opt/vast-host-installer']
+    - ['curtin', 'in-target', '--target=/target', '--', 'install', '-Dm0644', '/opt/vast-host-installer/systemd/vast-host-installer-first-run-notice.service', '/etc/systemd/system/vast-host-installer-first-run-notice.service']
+    - ['curtin', 'in-target', '--target=/target', '--', 'chmod', '+x', '/opt/vast-host-installer/bin/vast-host-installer']
+    - ['curtin', 'in-target', '--target=/target', '--', 'systemctl', 'enable', 'vast-host-installer-first-run-notice.service']
