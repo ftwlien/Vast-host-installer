@@ -2,9 +2,9 @@
 set -euo pipefail
 
 install_vast_host_from_known_good_flow() {
-  local api_key port_range install_cmd
+  local api_key port_range install_cmd sanitized_cmd
   api_key="${VAST_API_KEY:-}"
-  port_range="${VAST_PORT_RANGE:-40000-40019}"
+  port_range="${VAST_PORT_RANGE:-}"
   install_cmd="${VAST_INSTALL_COMMAND:-}"
 
   if ! is_apt_system; then
@@ -17,10 +17,11 @@ install_vast_host_from_known_good_flow() {
   if [[ -n "$install_cmd" ]]; then
     local vast_tmp
     vast_tmp="$(mktemp -d /tmp/vast-install.XXXXXX)"
+    sanitized_cmd="$(printf '%s' "$install_cmd" | sed -E 's/[[:space:]]*;?[[:space:]]*history -d .*?$//')"
     log "running provided Vast install command in $vast_tmp"
     (
       cd "$vast_tmp"
-      bash -lc "$install_cmd"
+      bash -lc "$sanitized_cmd"
     )
   else
     [[ -n "$api_key" ]] || die "Provide either VAST_INSTALL_COMMAND or VAST_API_KEY."
@@ -29,10 +30,13 @@ install_vast_host_from_known_good_flow() {
     sudo python3 /tmp/vast-install.sh "$api_key"
   fi
 
-  sudo mkdir -p /var/lib/vastai_kaalia
-  echo "$port_range" | sudo tee /var/lib/vastai_kaalia/host_port_range >/dev/null
-
-  log "Vast install step completed with host port range $port_range"
+  if [[ -n "$port_range" ]]; then
+    sudo mkdir -p /var/lib/vastai_kaalia
+    echo "$port_range" | sudo tee /var/lib/vastai_kaalia/host_port_range >/dev/null
+    log "Vast install step completed with host port range $port_range"
+  else
+    log "Vast install step completed"
+  fi
 }
 
 print_vast_post_install_notes() {

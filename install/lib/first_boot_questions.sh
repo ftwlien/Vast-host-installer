@@ -8,7 +8,6 @@ FIRST_BOOT_HOSTNAME=""
 FIRST_BOOT_VAST_INSTALL_COMMAND=""
 FIRST_BOOT_USERNAME=""
 FIRST_BOOT_PASSWORD=""
-FIRST_BOOT_PORT_RANGE="40000-40019"
 
 prompt_yes_no() {
   local prompt default reply
@@ -53,10 +52,6 @@ run_first_boot_questionnaire() {
   [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Final username is required"
   prompt_password_twice
 
-  prompt_box "Choose the port range Vast should use on this host. Press Enter to use the default."
-  read -r -p "Vast host port range [40000-40019]: " FIRST_BOOT_PORT_RANGE
-  FIRST_BOOT_PORT_RANGE="${FIRST_BOOT_PORT_RANGE:-40000-40019}"
-
   prompt_box "Paste the full Vast install command from Vast.ai below (for example the wget/python command)."
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
@@ -78,5 +73,4 @@ emit_first_boot_answers() {
   echo "FIRST_BOOT_INSTALL_GPUTEMPS=$FIRST_BOOT_INSTALL_GPUTEMPS"
   echo "FIRST_BOOT_INSTALL_FLEET_HEALTH=$FIRST_BOOT_INSTALL_FLEET_HEALTH"
   echo "FIRST_BOOT_USERNAME=$FIRST_BOOT_USERNAME"
-  echo "FIRST_BOOT_PORT_RANGE=$FIRST_BOOT_PORT_RANGE"
 }
