@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="${HOME}/.config/vast-host-installer"
 STATE_FILE="${STATE_DIR}/resume.env"
 PROFILE="fresh-basic"
+WITH_VAST_CLI=0
 WITH_RIG_MONITOR=0
 WITH_FLEET_HEALTH=0
 PLAN_ONLY=0
@@ -42,6 +43,7 @@ Usage: bash install/main.sh [options]
 
 Options:
   --profile <name>
+  --with-vast-cli
   --with-rig-monitor
   --with-fleet-health
   --vast-api-key <key>
@@ -63,6 +65,10 @@ while [[ $# -gt 0 ]]; do
     --profile)
       PROFILE="${2:-}"
       shift 2
+      ;;
+    --with-vast-cli)
+      WITH_VAST_CLI=1
+      shift
       ;;
     --with-rig-monitor)
       WITH_RIG_MONITOR=1
@@ -182,6 +188,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   run_first_boot_questionnaire
   PROFILE="$(infer_profile_from_layout)"
   VAST_INSTALL_COMMAND="$FIRST_BOOT_VAST_INSTALL_COMMAND"
+  WITH_VAST_CLI="$FIRST_BOOT_INSTALL_VAST_CLI"
   WITH_RIG_MONITOR="$FIRST_BOOT_INSTALL_RIG_MONITOR"
   WITH_FLEET_HEALTH="$FIRST_BOOT_INSTALL_FLEET_HEALTH"
 
@@ -257,6 +264,9 @@ case "$PROFILE" in
     ;;
 esac
 
+if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+  install_vast_cli
+fi
 if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
   install_rig_monitor_placeholder
 fi

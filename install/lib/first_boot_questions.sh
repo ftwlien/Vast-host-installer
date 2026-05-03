@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+FIRST_BOOT_INSTALL_VAST_CLI=0
 FIRST_BOOT_INSTALL_RIG_MONITOR=0
 FIRST_BOOT_INSTALL_FLEET_HEALTH=0
 FIRST_BOOT_HOSTNAME=""
@@ -55,6 +56,9 @@ run_first_boot_questionnaire() {
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
+  if prompt_yes_no "Install Vast CLI locally?" "y"; then
+    FIRST_BOOT_INSTALL_VAST_CLI=1
+  fi
   if prompt_yes_no "Install rig-monitor (includes GPU temp helper setup)?" "y"; then
     FIRST_BOOT_INSTALL_RIG_MONITOR=1
   fi
@@ -65,6 +69,7 @@ run_first_boot_questionnaire() {
 
 emit_first_boot_answers() {
   echo "FIRST_BOOT_HOSTNAME=$FIRST_BOOT_HOSTNAME"
+  echo "FIRST_BOOT_INSTALL_VAST_CLI=$FIRST_BOOT_INSTALL_VAST_CLI"
   echo "FIRST_BOOT_INSTALL_RIG_MONITOR=$FIRST_BOOT_INSTALL_RIG_MONITOR"
   echo "FIRST_BOOT_INSTALL_FLEET_HEALTH=$FIRST_BOOT_INSTALL_FLEET_HEALTH"
   echo "FIRST_BOOT_USERNAME=$FIRST_BOOT_USERNAME"

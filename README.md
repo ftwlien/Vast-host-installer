@@ -37,7 +37,7 @@ Build a trusted post-Ubuntu installer that can:
 - install NVIDIA
 - install Vast
 - install Docker manually only if Vast setup explicitly needs it
-- optionally install rig-monitor (including GPU temp helper setup) / fleet-health extras
+- optionally install Vast CLI, rig-monitor (including GPU temp helper setup), and fleet-health extras
 - verify the final state
 
 ## Quick usage
@@ -111,6 +111,7 @@ This mode now:
 - asks for final operator username + password
 - asks for the full Vast install command from Vast.ai
 - lets the Vast installer itself handle the host port range prompt
+- can optionally install the Vast CLI locally before the other extras
 - detects whether the machine is single-disk or two-disk
 - explains the storage plan in plain English and asks for confirmation before destructive disk changes
 - phase 1: applies storage prep + full system updates
