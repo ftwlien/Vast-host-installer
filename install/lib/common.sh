@@ -4,27 +4,33 @@ set -euo pipefail
 if [[ -t 1 ]]; then
   C_RESET='\033[0m'
   C_BOLD='\033[1m'
+  C_DIM='\033[2m'
   C_BLUE='\033[1;34m'
   C_GREEN='\033[1;32m'
   C_YELLOW='\033[1;33m'
   C_RED='\033[1;31m'
   C_CYAN='\033[1;36m'
+  C_MAGENTA='\033[1;35m'
 else
   C_RESET=''
   C_BOLD=''
+  C_DIM=''
   C_BLUE=''
   C_GREEN=''
   C_YELLOW=''
   C_RED=''
   C_CYAN=''
+  C_MAGENTA=''
 fi
 
 banner() {
-  printf '\n%b=== %s ===%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
+  printf '\n%b╔════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '%b║ %s%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
+  printf '%b╚════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
 }
 
 command_box() {
-  printf '\n%bCOPY / RUN THIS NEXT:%b\n' "$C_GREEN$C_BOLD" "$C_RESET"
+  printf '\n%bNEXT COMMAND%b\n' "$C_GREEN$C_BOLD" "$C_RESET"
   printf '%b%s%b\n\n' "$C_GREEN$C_BOLD" "$1" "$C_RESET"
 }
 
@@ -51,6 +57,16 @@ die() {
 
 prompt_box() {
   printf '\n%b%s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
+}
+
+summary_box() {
+  local title="$1"
+  shift
+  printf '\n%b%s%b\n' "$C_MAGENTA$C_BOLD" "$title" "$C_RESET"
+  for line in "$@"; do
+    printf '%b• %s%b\n' "$C_DIM" "$line" "$C_RESET"
+  done
+  printf '\n'
 }
 
 prompt_reboot_now() {

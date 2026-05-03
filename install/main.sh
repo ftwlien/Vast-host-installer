@@ -219,8 +219,14 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   run_base_system_prep_from_known_good_flow
   save_resume_state after-reboot
 
-  printf '\033[1;32m✓ Phase 1 complete.\033[0m\n'
-  echo "After reboot, run the command below."
+  banner "Phase 1 Complete"
+  summary_box "What was done" \
+    "Final hostname was set" \
+    "Operator user was created" \
+    "Storage layout was prepared for this rig" \
+    "Base system prep finished" \
+    "Resume state was saved for phase 2"
+  echo "Next step: reboot, then continue with NVIDIA setup."
   command_box "cd $ROOT_DIR && bash install/main.sh --resume"
   prompt_reboot_now
   exit 0
@@ -231,8 +237,12 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   banner "Phase 2 - NVIDIA Open Driver Setup"
   install_nvidia_590_open_from_known_good_flow
   save_resume_state after-nvidia-reboot
-  printf '\033[1;32m✓ Phase 2 complete.\033[0m\n'
-  echo "After reboot, run the command below."
+  banner "Phase 2 Complete"
+  summary_box "What was done" \
+    "Recommended NVIDIA driver was installed" \
+    "GPU driver readiness was checked" \
+    "Resume state was saved for the final Vast phase"
+  echo "Next step: reboot, then continue with Vast setup."
   command_box "cd $ROOT_DIR && bash install/main.sh --resume"
   prompt_reboot_now
   exit 0
