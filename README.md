@@ -109,8 +109,8 @@ bash install/main.sh --first-run
 This mode now:
 - asks for final hostname
 - asks for final operator username + password
-- asks for Vast host port range
 - asks for the full Vast install command from Vast.ai
+- lets the Vast installer itself handle the host port range prompt
 - detects whether the machine is single-disk or two-disk
 - explains the storage plan in plain English and asks for confirmation before destructive disk changes
 - phase 1: applies storage prep + full system updates
@@ -130,7 +130,7 @@ The script saves its own resume state during phase 1 and phase 2, so you no long
 Direct phase-3 style apply example:
 
 ```bash
-bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --vast-port-range 40000-40019 --confirm-disk /dev/YOUR_DATA_DISK --resume-after-nvidia-reboot --apply
+bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --resume-after-nvidia-reboot --apply
 ```
 
 For destructive two-disk storage apply, the installer now requires the exact target disk to be confirmed explicitly.

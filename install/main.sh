@@ -17,7 +17,7 @@ RESUME_AFTER_NVIDIA_REBOOT=0
 CONFIRM_DISK=""
 VAST_API_KEY="${VAST_API_KEY:-}"
 VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
-VAST_PORT_RANGE="${VAST_PORT_RANGE:-40000-40019}"
+VAST_PORT_RANGE="${VAST_PORT_RANGE:-}"
 
 source "$ROOT_DIR/install/lib/common.sh"
 source "$ROOT_DIR/install/lib/detect.sh"
@@ -48,7 +48,6 @@ Options:
   --with-fleet-health
   --vast-api-key <key>
   --vast-install-command <cmd>
-  --vast-port-range <range>
   --confirm-disk <device>
   --detect-only
   --plan-only
@@ -85,10 +84,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --vast-install-command)
       VAST_INSTALL_COMMAND="${2:-}"
-      shift 2
-      ;;
-    --vast-port-range)
-      VAST_PORT_RANGE="${2:-}"
       shift 2
       ;;
     --confirm-disk)
@@ -152,7 +147,7 @@ load_resume_state() {
   PROFILE="${PROFILE:-fresh-basic}"
   ROOT_DIR="${ROOT_DIR:-$ROOT_DIR}"
   VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
-  VAST_PORT_RANGE="${VAST_PORT_RANGE:-40000-40019}"
+  VAST_PORT_RANGE="${VAST_PORT_RANGE:-}"
   case "${NEXT_PHASE:-}" in
     after-reboot)
       RESUME_AFTER_REBOOT=1
