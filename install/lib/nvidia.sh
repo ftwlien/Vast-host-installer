@@ -25,7 +25,10 @@ install_nvidia_590_open_from_known_good_flow() {
   fi
   log "installing NVIDIA using Ubuntu's recommended dynamic driver selection"
   sudo apt update
-  sudo apt install -y software-properties-common ubuntu-drivers-common build-essential
+  sudo apt install -y software-properties-common ubuntu-drivers-common build-essential "linux-headers-$(uname -r)"
+  if mokutil --sb-state 2>/dev/null | grep -qi 'enabled'; then
+    warn "Secure Boot appears to be enabled. NVIDIA kernel modules may fail to load until Secure Boot is disabled or the module is enrolled."
+  fi
   sudo apt purge -y 'nvidia-*' || true
   sudo apt autoremove -y || true
 
