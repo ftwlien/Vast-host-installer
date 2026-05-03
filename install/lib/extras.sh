@@ -33,5 +33,17 @@ install_rig_monitor_placeholder() {
 }
 
 install_fleet_health_placeholder() {
-  log "placeholder: fleet-health prereq install hook"
+  local repo_dir
+  repo_dir="${HOME}/Fleet-Health-Check-public"
+  banner "Optional Extra - Fleet Health Check"
+  if [[ -d "$repo_dir/.git" ]]; then
+    step "Updating existing Fleet Health Check repo"
+    git -C "$repo_dir" pull --ff-only
+  else
+    step "Cloning Fleet Health Check repo"
+    git clone https://github.com/ftwlien/Fleet-Health-Check-public.git "$repo_dir"
+  fi
+  step "Running Fleet Health Check prerequisite installer"
+  bash "$repo_dir/install-fleet-health-prereqs.sh"
+  success "Fleet Health Check prerequisites installed"
 }
