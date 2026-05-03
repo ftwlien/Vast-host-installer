@@ -164,20 +164,22 @@ Current state:
 - first web generator mock in place
 - install engine skeleton exists
 - detect-only path works
-- one-disk vs two-disk classification skeleton exists
+- one-disk vs two-disk classification works
 - autoinstall disk-target policy module exists
 - first-run workflow mode exists
 - `--plan-only` preview mode exists
 - human-readable plan summary exists
-- single-disk policy targets 100G for / and the rest for /var/lib/docker
-- two-disk storage planning is explicit
-- first real two-disk storage apply function exists
+- single-disk phase-1 storage apply exists (100G for /, rest for /var/lib/docker)
+- two-disk phase-1 storage apply exists (largest non-root disk goes to /var/lib/docker)
+- plain-English storage confirmation prompts exist for destructive disk changes
+- three-phase manual flow exists (prep/update, NVIDIA, Vast)
 - first-pass Vast install module exists
 - first-pass verification layer exists
 - autoinstall/bootstrap scaffolding exists
+- USB-bootable ISO release path exists and v0.1.2 has passed a real bare-metal boot test
 
-Still missing:
-- real single-disk storage apply policy
+Still missing / still rough:
 - same-id / clean reinstall profiles
 - richer autoinstall storage generation from policy
-- final ISO build layer
+- more real-world validation of the single-disk live shrink/apply path
+- polish for user wording and noob-proof UX
