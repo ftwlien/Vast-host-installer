@@ -42,7 +42,17 @@ Build a trusted post-Ubuntu installer that can:
 
 ## Quick usage
 
-Read-only detect:
+### Portable post-install bootstrap on any machine
+
+After installing Ubuntu from the ISO and logging in as `vastbootstrap`, run:
+
+```bash
+sudo apt update && sudo apt install -y git && git clone https://github.com/ftwlien/Vast-host-installer.git && cd Vast-host-installer && bash install/main.sh --first-run
+```
+
+This is the recommended path for fresh machines that do not have access to this bot's workspace or local network.
+
+### Read-only detect
 
 ```bash
 bash install/main.sh --detect-only
@@ -50,7 +60,7 @@ bash install/main.sh --detect-only
 
 This now also shows the autoinstall-target disk policy view.
 
-Install the project into the future bootstrap location:
+### Optional local install into /opt
 
 ```bash
 bash scripts/install-into-opt.sh
@@ -72,9 +82,13 @@ Autoinstall/bootstrap scaffolding now exists in:
 
 ## Current ISO testing artifact
 
-GitHub release download:
+Latest GitHub release download:
 
-- <https://github.com/ftwlien/Vast-host-installer/releases/download/v0.1.0/vast-host-installer-jammy-custom.iso>
+- <https://github.com/ftwlien/Vast-host-installer/releases/latest>
+
+Direct current ISO download:
+
+- <https://github.com/ftwlien/Vast-host-installer/releases/download/v0.1.2/vast-host-installer-jammy-custom.iso>
 
 Local bot1 build path:
 
