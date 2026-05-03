@@ -12,6 +12,7 @@ run_profile_fresh_single_disk() {
   if [[ "${RESUME_AFTER_NVIDIA_REBOOT:-0}" -ne 1 ]]; then
     return 0
   fi
+  verify_nvidia_ready_or_die
   install_vast_host_from_known_good_flow
   print_vast_post_install_notes
 }
