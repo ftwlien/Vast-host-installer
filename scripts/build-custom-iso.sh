@@ -63,26 +63,26 @@ if [[ ! -f "$EXTRACT_DIR/EFI/boot/grubx64.efi" ]]; then
   exit 6
 fi
 
-xorriso -as mkisofs \
-  -r \
-  -V 'VASTHOST_JAMMY' \
-  -o "$OUTPUT_ISO" \
-  -J -l \
-  -partition_offset 16 \
-  -append_partition 2 0xef "$EXTRACT_DIR/EFI/boot/grubx64.efi" \
-  -appended_part_as_gpt \
-  -iso_mbr_part_type a2a0d0ebe5b9334487c068b6b72699c7 \
-  -c boot.catalog \
-  -b boot/grub/i386-pc/eltorito.img \
-  -no-emul-boot \
-  -boot-load-size 4 \
-  -boot-info-table \
-  --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
-  --grub2-boot-info \
-  -eltorito-alt-boot \
-  -e '--interval:appended_partition_2:::' \
-  -no-emul-boot \
-  "$EXTRACT_DIR" >/dev/null 2>&1
+UPSTREAM_REPORT_ELTORITO="$BUILD_DIR/upstream-boot-metadata.txt"
+CUSTOM_REPORT_ELTORITO="$BUILD_DIR/custom-boot-metadata.txt"
+
+xorriso -indev "$UPSTREAM_ISO" -report_el_torito plain > "$UPSTREAM_REPORT_ELTORITO" 2>&1
+xorriso -indev "$UPSTREAM_ISO" -report_system_area plain >> "$UPSTREAM_REPORT_ELTORITO" 2>&1
+
+# Rebuild by loading the upstream ISO and replaying its boot/hybrid metadata,
+# then recursively updating the file tree from our extracted+patched scaffold.
+# This preserves Ubuntu's own El Torito and USB system-area layout much more
+# faithfully than hand-reconstructing it with mkisofs flags.
+xorriso \
+  -indev "$UPSTREAM_ISO" \
+  -outdev "$OUTPUT_ISO" \
+  -boot_image any replay \
+  -update_r "$EXTRACT_DIR" / \
+  -commit \
+  -end >/dev/null 2>&1
+
+xorriso -indev "$OUTPUT_ISO" -report_el_torito plain > "$CUSTOM_REPORT_ELTORITO" 2>&1
+xorriso -indev "$OUTPUT_ISO" -report_system_area plain >> "$CUSTOM_REPORT_ELTORITO" 2>&1
 
 cat > "$BUILD_DIR/CUSTOM-ISO-PLAN.txt" <<EOF
 Custom ISO rebuild attempt complete.
