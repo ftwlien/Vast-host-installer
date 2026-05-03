@@ -48,6 +48,20 @@ prompt_box() {
   printf '\n%b%s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
 }
 
+prompt_reboot_now() {
+  local reply
+  read -r -p "Reboot now? [Y/n]: " reply
+  reply="${reply:-Y}"
+  case "$reply" in
+    y|Y|yes|YES|'')
+      sudo reboot
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }

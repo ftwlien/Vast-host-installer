@@ -228,12 +228,12 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   cat <<EOF
 
 $(printf '\033[1;32m✓ Phase 1 complete.\033[0m')
-Reboot the machine, then run:
+After reboot, run this command:
 
-cd $ROOT_DIR
-bash install/main.sh --resume
+cd $ROOT_DIR && bash install/main.sh --resume
 
 EOF
+  prompt_reboot_now
   exit 0
 fi
 
@@ -245,12 +245,12 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   cat <<EOF
 
 $(printf '\033[1;32m✓ Phase 2 complete.\033[0m')
-Reboot the machine again, then run:
+After reboot, run this command:
 
-cd $ROOT_DIR
-bash install/main.sh --resume
+cd $ROOT_DIR && bash install/main.sh --resume
 
 EOF
+  prompt_reboot_now
   exit 0
 fi
 
