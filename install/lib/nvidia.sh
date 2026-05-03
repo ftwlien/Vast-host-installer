@@ -15,11 +15,15 @@ install_nvidia_590_open_from_known_good_flow() {
   log "installing NVIDIA using known-good onboarding flow (590-open baseline)"
   sudo apt update
   sudo apt install -y software-properties-common ubuntu-drivers-common build-essential
-  sudo add-apt-repository ppa:graphics-drivers/ppa -y
-  sudo apt update
   sudo apt purge -y 'nvidia-*' || true
   sudo apt autoremove -y || true
-  sudo ubuntu-drivers install nvidia:590-open || sudo apt install -y nvidia-driver-590-open
+
+  if ! sudo ubuntu-drivers install nvidia:590-open && ! sudo apt install -y nvidia-driver-590-open; then
+    warn "Ubuntu-native NVIDIA install path failed; trying graphics-drivers PPA fallback"
+    sudo add-apt-repository ppa:graphics-drivers/ppa -y
+    sudo apt update
+    sudo ubuntu-drivers install nvidia:590-open || sudo apt install -y nvidia-driver-590-open
+  fi
   sudo nvidia-xconfig -a --cool-bits=28 --allow-empty-initial-configuration --enable-all-gpus || true
   sudo bash -c '(crontab -l 2>/dev/null; echo "@reboot nvidia-smi -pm 1" ) | crontab -'
 }
