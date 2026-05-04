@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -27,6 +28,14 @@ def _lsblk_disks() -> list[Disk]:
     return _parse_lsblk_disks(output)
 
 
+def _lsblk_tree() -> list[dict]:
+    output = subprocess.check_output(
+        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,MOUNTPOINTS'],
+        text=True,
+    )
+    return json.loads(output).get('blockdevices') or []
+
+
 def _has_install_media_mount(device: dict) -> bool:
     mountpoints = device.get('mountpoints') or []
     for mountpoint in mountpoints:
@@ -45,6 +54,116 @@ def _parse_lsblk_disks(output: str) -> list[Disk]:
             continue
         disks.append(Disk(path=str(device['path']), size_bytes=int(device['size'])))
     return sorted(disks, key=lambda disk: (disk.size_bytes, disk.path))
+
+
+def _select_target_disks(disks: list[Disk]) -> list[Disk]:
+    if len(disks) == 1:
+        return [disks[0]]
+    if len(disks) >= 2:
+        return [disks[0], disks[-1]]
+    raise RuntimeError('ambiguous storage layout: no installable disks found')
+
+
+def _find_device(tree: list[dict], path: str) -> dict | None:
+    for device in tree:
+        if device.get('path') == path:
+            return device
+        found = _find_device(device.get('children') or [], path)
+        if found:
+            return found
+    return None
+
+
+def _child_partitions(device: dict) -> list[str]:
+    partitions: list[str] = []
+    for child in device.get('children') or []:
+        if child.get('type') == 'part':
+            partitions.append(str(child['path']))
+        partitions.extend(_child_partitions(child))
+    return partitions
+
+
+def _realpath(path: str) -> str:
+    try:
+        return os.path.realpath(path)
+    except Exception:
+        return path
+
+
+def _run_quiet(command: list[str]) -> subprocess.CompletedProcess:
+    return subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+
+def _mounted_sources() -> list[tuple[str, str]]:
+    result = _run_quiet(['findmnt', '-rn', '-o', 'SOURCE,TARGET'])
+    if result.returncode != 0:
+        raise RuntimeError(f'findmnt failed: {result.stderr.strip()}')
+    mounts: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        parts = line.split(maxsplit=1)
+        if len(parts) == 2:
+            mounts.append((parts[0], parts[1]))
+    return mounts
+
+
+def _target_partition_paths(target_disks: list[Disk]) -> set[str]:
+    tree = _lsblk_tree()
+    partitions: set[str] = set()
+    for disk in target_disks:
+        device = _find_device(tree, disk.path)
+        if not device:
+            continue
+        partitions.update(_realpath(path) for path in _child_partitions(device))
+    return partitions
+
+
+def _is_protected_mount(target: str) -> bool:
+    protected = ('/', '/cdrom', '/run/live', '/rofs')
+    return target in protected or target.startswith('/cdrom/') or target.startswith('/run/live/')
+
+
+def prepare_target_disks() -> None:
+    target_disks = _select_target_disks(_lsblk_disks())
+    target_partitions = _target_partition_paths(target_disks)
+    if not target_partitions:
+        return
+
+    swap_result = _run_quiet(['swapon', '--show=NAME', '--noheadings'])
+    if swap_result.returncode == 0:
+        for swap_path in swap_result.stdout.splitlines():
+            if _realpath(swap_path.strip()) in target_partitions:
+                _run_quiet(['swapoff', swap_path.strip()])
+
+    target_mounts = [
+        (source, target)
+        for source, target in _mounted_sources()
+        if _realpath(source) in target_partitions
+    ]
+    if any(target == '/var/log' for _, target in target_mounts):
+        _run_quiet(['systemctl', 'stop', 'rsyslog.service'])
+        _run_quiet(['systemctl', 'stop', 'syslog.socket'])
+
+    for source, target in sorted(target_mounts, key=lambda item: len(item[1]), reverse=True):
+        if _is_protected_mount(target):
+            raise RuntimeError(
+                f'refusing to unmount protected live mount {target} from target disk source {source}'
+            )
+        result = _run_quiet(['umount', target])
+        if result.returncode != 0 and target == '/var/log':
+            result = _run_quiet(['umount', '-l', target])
+        if result.returncode != 0:
+            raise RuntimeError(
+                f'failed to unmount target disk source {source} from {target}: {result.stderr.strip()}'
+            )
+
+    remaining = [
+        (source, target)
+        for source, target in _mounted_sources()
+        if _realpath(source) in target_partitions and not _is_protected_mount(target)
+    ]
+    if remaining:
+        details = ', '.join(f'{source} on {target}' for source, target in remaining)
+        raise RuntimeError(f'target disk partitions are still mounted after cleanup: {details}')
 
 
 def detect_mode() -> str:
@@ -263,9 +382,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--mode', choices=['single-disk', 'two-disk', 'auto'], default='auto')
     parser.add_argument('--rewrite-autoinstall', type=Path)
+    parser.add_argument('--prepare-target-disks', action='store_true')
     args = parser.parse_args()
 
     try:
+        if args.prepare_target_disks:
+            prepare_target_disks()
+            if not args.rewrite_autoinstall:
+                return 0
         if args.rewrite_autoinstall:
             rewrite_autoinstall(args.rewrite_autoinstall, args.mode)
         else:

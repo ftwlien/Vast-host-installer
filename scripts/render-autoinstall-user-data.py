@@ -83,6 +83,12 @@ def render_early_commands(
     if mode != 'auto' or not include_runtime_early_commands:
         return ''
 
+    prepare_command = ' '.join([
+        'python3',
+        '/cdrom/opt-vast-host-installer-overlay/scripts/generate-autoinstall-storage.py',
+        '--mode', 'auto',
+        '--prepare-target-disks',
+    ])
     command = ' '.join([
         'python3',
         '/cdrom/opt-vast-host-installer-overlay/scripts/render-autoinstall-user-data.py',
@@ -94,6 +100,7 @@ def render_early_commands(
         '>', '/autoinstall.yaml',
     ])
     return f'''  early-commands:
+    - ['bash', '-lc', {prepare_command!r}]
     - ['bash', '-lc', {command!r}]
 '''
 

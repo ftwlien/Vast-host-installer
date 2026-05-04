@@ -9,6 +9,7 @@ autoinstall:
     install-server: true
     allow-pw: true
   early-commands:
+    - ['bash', '-lc', 'python3 /cdrom/opt-vast-host-installer-overlay/scripts/generate-autoinstall-storage.py --mode auto --prepare-target-disks']
     - ['bash', '-lc', "python3 /cdrom/opt-vast-host-installer-overlay/scripts/render-autoinstall-user-data.py --mode auto --hostname vast-bootstrap --username vastbootstrap --password-hash '$6$4293266d1f5ff437$n.XF9MIo4EcJB/KWT0gt2jbVG0Mxhb84ZmgPNzDjLvxz6SJzc9xMDmlS4Z7PqFxQFnvtrPi202hjqrnEVBkkX/' --no-runtime-early-commands > /autoinstall.yaml"]
 
   apt:
