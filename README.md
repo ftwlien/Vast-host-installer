@@ -88,17 +88,11 @@ Latest GitHub release download:
 
 Direct current ISO download:
 
-- <https://github.com/ftwlien/Vast-host-installer/releases/download/v0.1.5/vast-host-installer-jammy-custom.iso>
+- <https://github.com/ftwlien/Vast-host-installer/releases/download/v0.1.2/vast-host-installer-jammy-custom.iso>
 
 Local bot1 build path:
 
 - `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-jammy-custom.iso`
-
-One-command health/status check:
-
-```bash
-bash scripts/health-check.sh
-```
 
 Read-only plan preview:
 
