@@ -24,10 +24,18 @@ The final autoinstall flow should:
 
 ## Current limitation
 
-The generator currently emits only the **OS install disk** side of the autoinstall storage config.
-It does **not** yet generate the post-install data-disk mount logic — that still lives in the installer engine.
+The ISO scaffold renders `--mode auto` as a bootstrap autoinstall file. Its
+early command runs the renderer again from the ISO overlay, inside the target
+installer environment, and rewrites `/autoinstall.yaml` using the VM/server's
+own `lsblk` output. This is important on Proxmox: resolving `auto` at ISO build
+time bakes in the builder's disk layout and can hand curtin a storage plan that
+does not match the VM.
 
-That split is intentional for now.
+For one-disk autoinstall targets, the generated layout now keeps Docker/Vast on
+the root filesystem instead of forcing a separate 100G-root-plus-XFS remainder
+layout. That avoids curtin partitioning failures on common 100G-or-smaller
+virtual disks. Two-disk targets still mount the largest disk at
+`/var/lib/docker`.
 
 ## Example render
 

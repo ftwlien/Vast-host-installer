@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -17,8 +18,23 @@ def run_storage_generator(mode: str) -> str:
     ], text=True)
 
 
-def build_autoinstall_yaml(mode: str, hostname: str, username: str, password_hash: str) -> str:
-    storage_yaml = run_storage_generator(mode).rstrip()
+def direct_storage_yaml() -> str:
+    return '''storage:
+  layout:
+    name: direct'''
+
+
+def build_autoinstall_yaml(
+    mode: str,
+    hostname: str,
+    username: str,
+    password_hash: str,
+    include_runtime_early_commands: bool,
+) -> str:
+    if mode == 'auto' and include_runtime_early_commands:
+        storage_yaml = direct_storage_yaml()
+    else:
+        storage_yaml = run_storage_generator(mode).rstrip()
     indented_storage_yaml = '\n'.join(
         ('  ' + line) if line.strip() else line
         for line in storage_yaml.splitlines()
@@ -33,6 +49,7 @@ autoinstall:
   ssh:
     install-server: true
     allow-pw: true
+{render_early_commands(mode, hostname, username, password_hash, include_runtime_early_commands)}
   user-data:
     disable_root: true
     users:
@@ -48,12 +65,28 @@ autoinstall:
 {render_late_commands()}'''
 
 
-def render_early_commands(mode: str) -> str:
-    if mode != 'auto':
+def render_early_commands(
+    mode: str,
+    hostname: str,
+    username: str,
+    password_hash: str,
+    include_runtime_early_commands: bool,
+) -> str:
+    if mode != 'auto' or not include_runtime_early_commands:
         return ''
 
-    return '''  early-commands:
-    - ['cp', '/cdrom/opt-vast-host-installer-overlay/autoinstall-auto.yaml', '/autoinstall.yaml']
+    command = ' '.join([
+        'python3',
+        '/cdrom/opt-vast-host-installer-overlay/scripts/render-autoinstall-user-data.py',
+        '--mode', 'auto',
+        '--hostname', shlex.quote(hostname),
+        '--username', shlex.quote(username),
+        '--password-hash', shlex.quote(password_hash),
+        '--no-runtime-early-commands',
+        '>', '/autoinstall.yaml',
+    ])
+    return f'''  early-commands:
+    - ['bash', '-lc', {command!r}]
 '''
 
 
@@ -83,6 +116,7 @@ def main() -> int:
     parser.add_argument('--username', default='vastbootstrap')
     parser.add_argument('--password-hash', default='')
     parser.add_argument('--password', default='')
+    parser.add_argument('--no-runtime-early-commands', action='store_true')
     args = parser.parse_args()
 
     password_hash = args.password_hash
@@ -92,9 +126,13 @@ def main() -> int:
         else:
             password_hash = 'REPLACE_ME_WITH_A_REAL_HASH'
 
-    rendered = build_autoinstall_yaml(args.mode, args.hostname, args.username, password_hash)
-    if args.mode == 'auto':
-        rendered = rendered.replace('  ssh:\n    install-server: true\n    allow-pw: true\n', '  ssh:\n    install-server: true\n    allow-pw: true\n' + render_early_commands(args.mode), 1)
+    rendered = build_autoinstall_yaml(
+        args.mode,
+        args.hostname,
+        args.username,
+        password_hash,
+        include_runtime_early_commands=not args.no_runtime_early_commands,
+    )
     sys.stdout.write(rendered)
     return 0
 

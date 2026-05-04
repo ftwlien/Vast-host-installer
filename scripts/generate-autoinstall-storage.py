@@ -85,7 +85,7 @@ storage:
     - type: partition
       id: root-partition
       device: os-disk
-      size: 100G
+      size: -1
     - type: format
       id: root-format
       volume: root-partition
@@ -94,19 +94,6 @@ storage:
       id: root-mount
       path: /
       device: root-format
-    - type: partition
-      id: docker-partition
-      device: os-disk
-      size: -1
-    - type: format
-      id: docker-format
-      volume: docker-partition
-      fstype: xfs
-    - type: mount
-      id: docker-mount
-      path: /var/lib/docker
-      device: docker-format
-      options: defaults,prjquota
 """.strip()
 
 
