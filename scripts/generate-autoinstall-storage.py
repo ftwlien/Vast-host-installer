@@ -22,7 +22,7 @@ SINGLE_DISK_SPLIT_MIN_BYTES = 140 * GIB
 
 def _lsblk_disks() -> list[Disk]:
     output = subprocess.check_output(
-        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,MOUNTPOINTS'],
+        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,RM,TRAN,MOUNTPOINTS'],
         text=True,
     )
     return _parse_lsblk_disks(output)
@@ -30,7 +30,7 @@ def _lsblk_disks() -> list[Disk]:
 
 def _lsblk_tree() -> list[dict]:
     output = subprocess.check_output(
-        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,MOUNTPOINTS'],
+        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,RM,TRAN,MOUNTPOINTS'],
         text=True,
     )
     return json.loads(output).get('blockdevices') or []
@@ -49,6 +49,8 @@ def _parse_lsblk_disks(output: str) -> list[Disk]:
     disks: list[Disk] = []
     for device in payload.get('blockdevices') or []:
         if device.get('type') != 'disk':
+            continue
+        if device.get('rm') is True or str(device.get('tran') or '').lower() == 'usb':
             continue
         if _has_install_media_mount(device):
             continue
