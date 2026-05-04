@@ -50,6 +50,13 @@ autoinstall:
     install-server: true
     allow-pw: true
 {render_early_commands(mode, hostname, username, password_hash, include_runtime_early_commands)}
+  apt:
+    geoip: false
+    fallback: offline-install
+    mirror-selection:
+      primary:
+        - uri: http://archive.ubuntu.com/ubuntu/
+          arches: [amd64, i386]
   user-data:
     disable_root: true
     users:
