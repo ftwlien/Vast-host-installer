@@ -50,7 +50,6 @@ autoinstall:
     install-server: true
     allow-pw: true
 {render_early_commands(mode, hostname, username, password_hash, include_runtime_early_commands)}
-  updates: "no"
   apt:
     geoip: false
     fallback: offline-install
