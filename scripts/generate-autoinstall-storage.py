@@ -58,6 +58,10 @@ def detect_mode() -> str:
     )
 
 
+def _is_uefi_boot() -> bool:
+    return Path('/sys/firmware/efi').exists()
+
+
 def _single_disk_tail(split_docker: bool) -> str:
     if split_docker:
         return """
@@ -111,7 +115,15 @@ def _disk_locator_yaml(path: str | None, fallback_size: str) -> str:
         size: {fallback_size}"""
 
 
-def emit_single_disk_yaml(split_docker: bool = True, os_disk_path: str | None = None) -> str:
+def _grub_device_line(enabled: bool) -> str:
+    return f'      grub_device: {str(enabled).lower()}'
+
+
+def emit_single_disk_yaml(
+    split_docker: bool = True,
+    os_disk_path: str | None = None,
+    uefi_boot: bool = False,
+) -> str:
     return f"""
 storage:
   swap:
@@ -123,7 +135,7 @@ storage:
       ptable: gpt
       wipe: superblock-recursive
       preserve: false
-      grub_device: true
+{_grub_device_line(not uefi_boot)}
     - type: partition
       id: bios-boot
       device: os-disk
@@ -134,6 +146,7 @@ storage:
       device: os-disk
       size: 550M
       flag: boot
+{_grub_device_line(uefi_boot)}
     - type: format
       id: efi-format
       volume: efi-partition
@@ -146,7 +159,11 @@ storage:
 """.strip()
 
 
-def emit_two_disk_yaml(os_disk_path: str | None = None, data_disk_path: str | None = None) -> str:
+def emit_two_disk_yaml(
+    os_disk_path: str | None = None,
+    data_disk_path: str | None = None,
+    uefi_boot: bool = False,
+) -> str:
     return f"""
 storage:
   swap:
@@ -158,7 +175,7 @@ storage:
       ptable: gpt
       wipe: superblock-recursive
       preserve: false
-      grub_device: true
+{_grub_device_line(not uefi_boot)}
     - type: partition
       id: bios-boot
       device: os-disk
@@ -169,6 +186,7 @@ storage:
       device: os-disk
       size: 550M
       flag: boot
+{_grub_device_line(uefi_boot)}
     - type: format
       id: efi-format
       volume: efi-partition
@@ -214,13 +232,19 @@ storage:
 def emit_storage_yaml(mode: str) -> str:
     if mode == 'auto':
         disks = _lsblk_disks()
+        uefi_boot = _is_uefi_boot()
         if len(disks) == 1:
             return emit_single_disk_yaml(
                 split_docker=disks[0].size_bytes >= SINGLE_DISK_SPLIT_MIN_BYTES,
                 os_disk_path=disks[0].path,
+                uefi_boot=uefi_boot,
             )
         if len(disks) >= 2:
-            return emit_two_disk_yaml(os_disk_path=disks[0].path, data_disk_path=disks[-1].path)
+            return emit_two_disk_yaml(
+                os_disk_path=disks[0].path,
+                data_disk_path=disks[-1].path,
+                uefi_boot=uefi_boot,
+            )
         raise RuntimeError(
             'ambiguous storage layout: no installable disks found'
         )
