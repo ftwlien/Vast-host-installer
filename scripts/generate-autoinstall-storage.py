@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -20,21 +21,29 @@ SINGLE_DISK_SPLIT_MIN_BYTES = 140 * GIB
 
 def _lsblk_disks() -> list[Disk]:
     output = subprocess.check_output(
-        ['lsblk', '-b', '-dn', '-o', 'PATH,SIZE,TYPE'],
+        ['lsblk', '-b', '-J', '-o', 'PATH,SIZE,TYPE,MOUNTPOINTS'],
         text=True,
     )
+    return _parse_lsblk_disks(output)
+
+
+def _has_install_media_mount(device: dict) -> bool:
+    mountpoints = device.get('mountpoints') or []
+    for mountpoint in mountpoints:
+        if mountpoint == '/cdrom' or str(mountpoint).startswith('/cdrom/'):
+            return True
+    return any(_has_install_media_mount(child) for child in device.get('children') or [])
+
+
+def _parse_lsblk_disks(output: str) -> list[Disk]:
+    payload = json.loads(output)
     disks: list[Disk] = []
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
+    for device in payload.get('blockdevices') or []:
+        if device.get('type') != 'disk':
             continue
-        parts = line.split()
-        if len(parts) != 3:
-            raise RuntimeError(f'unexpected lsblk output line: {raw_line!r}')
-        path, size_str, dev_type = parts
-        if dev_type != 'disk':
+        if _has_install_media_mount(device):
             continue
-        disks.append(Disk(path=path, size_bytes=int(size_str)))
+        disks.append(Disk(path=str(device['path']), size_bytes=int(device['size'])))
     return sorted(disks, key=lambda disk: (disk.size_bytes, disk.path))
 
 
@@ -42,14 +51,10 @@ def detect_mode() -> str:
     disks = _lsblk_disks()
     if len(disks) == 1:
         return 'single-disk'
-    if len(disks) == 2:
-        if disks[0].size_bytes == disks[1].size_bytes:
-            raise RuntimeError(
-                'ambiguous storage layout: exactly two disks were found, but they are the same size'
-            )
+    if len(disks) >= 2:
         return 'two-disk'
     raise RuntimeError(
-        f'ambiguous storage layout: expected exactly 1 or 2 disks, found {len(disks)}'
+        'ambiguous storage layout: no installable disks found'
     )
 
 
@@ -99,7 +104,14 @@ def _single_disk_tail(split_docker: bool) -> str:
 """.lstrip('\n').rstrip()
 
 
-def emit_single_disk_yaml(split_docker: bool = True) -> str:
+def _disk_locator_yaml(path: str | None, fallback_size: str) -> str:
+    if path:
+        return f"""      path: {path}"""
+    return f"""      match:
+        size: {fallback_size}"""
+
+
+def emit_single_disk_yaml(split_docker: bool = True, os_disk_path: str | None = None) -> str:
     return f"""
 storage:
   swap:
@@ -107,8 +119,7 @@ storage:
   config:
     - type: disk
       id: os-disk
-      match:
-        size: smallest
+{_disk_locator_yaml(os_disk_path, 'smallest')}
       ptable: gpt
       wipe: superblock-recursive
       preserve: false
@@ -135,16 +146,15 @@ storage:
 """.strip()
 
 
-def emit_two_disk_yaml() -> str:
-    return """
+def emit_two_disk_yaml(os_disk_path: str | None = None, data_disk_path: str | None = None) -> str:
+    return f"""
 storage:
   swap:
     size: 0
   config:
     - type: disk
       id: os-disk
-      match:
-        size: smallest
+{_disk_locator_yaml(os_disk_path, 'smallest')}
       ptable: gpt
       wipe: superblock-recursive
       preserve: false
@@ -181,8 +191,7 @@ storage:
       device: root-format
     - type: disk
       id: data-disk
-      match:
-        size: largest
+{_disk_locator_yaml(data_disk_path, 'largest')}
       ptable: gpt
       wipe: superblock-recursive
       preserve: false
@@ -207,16 +216,13 @@ def emit_storage_yaml(mode: str) -> str:
         disks = _lsblk_disks()
         if len(disks) == 1:
             return emit_single_disk_yaml(
-                split_docker=disks[0].size_bytes >= SINGLE_DISK_SPLIT_MIN_BYTES
+                split_docker=disks[0].size_bytes >= SINGLE_DISK_SPLIT_MIN_BYTES,
+                os_disk_path=disks[0].path,
             )
-        if len(disks) == 2:
-            if disks[0].size_bytes == disks[1].size_bytes:
-                raise RuntimeError(
-                    'ambiguous storage layout: exactly two disks were found, but they are the same size'
-                )
-            return emit_two_disk_yaml()
+        if len(disks) >= 2:
+            return emit_two_disk_yaml(os_disk_path=disks[0].path, data_disk_path=disks[-1].path)
         raise RuntimeError(
-            f'ambiguous storage layout: expected exactly 1 or 2 disks, found {len(disks)}'
+            'ambiguous storage layout: no installable disks found'
         )
     if mode == 'single-disk':
         return emit_single_disk_yaml()
