@@ -123,7 +123,6 @@ storage:
       device: os-disk
       size: 550M
       flag: boot
-      grub_device: true
     - type: format
       id: efi-format
       volume: efi-partition
@@ -160,7 +159,6 @@ storage:
       device: os-disk
       size: 550M
       flag: boot
-      grub_device: true
     - type: format
       id: efi-format
       volume: efi-partition
