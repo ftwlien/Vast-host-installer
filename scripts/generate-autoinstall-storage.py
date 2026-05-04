@@ -14,6 +14,10 @@ class Disk:
     size_bytes: int
 
 
+GIB = 1024 ** 3
+SINGLE_DISK_SPLIT_MIN_BYTES = 140 * GIB
+
+
 def _lsblk_disks() -> list[Disk]:
     output = subprocess.check_output(
         ['lsblk', '-b', '-dn', '-o', 'PATH,SIZE,TYPE'],
@@ -49,8 +53,54 @@ def detect_mode() -> str:
     )
 
 
-def emit_single_disk_yaml() -> str:
+def _single_disk_tail(split_docker: bool) -> str:
+    if split_docker:
+        return """
+    - type: partition
+      id: root-partition
+      device: os-disk
+      size: 100G
+    - type: format
+      id: root-format
+      volume: root-partition
+      fstype: ext4
+    - type: mount
+      id: root-mount
+      path: /
+      device: root-format
+    - type: partition
+      id: docker-partition
+      device: os-disk
+      size: -1
+    - type: format
+      id: docker-format
+      volume: docker-partition
+      fstype: xfs
+    - type: mount
+      id: docker-mount
+      path: /var/lib/docker
+      device: docker-format
+      options: defaults,prjquota
+""".lstrip('\n').rstrip()
+
     return """
+    - type: partition
+      id: root-partition
+      device: os-disk
+      size: -1
+    - type: format
+      id: root-format
+      volume: root-partition
+      fstype: ext4
+    - type: mount
+      id: root-mount
+      path: /
+      device: root-format
+""".lstrip('\n').rstrip()
+
+
+def emit_single_disk_yaml(split_docker: bool = True) -> str:
+    return f"""
 storage:
   swap:
     size: 0
@@ -82,18 +132,7 @@ storage:
       id: efi-mount
       path: /boot/efi
       device: efi-format
-    - type: partition
-      id: root-partition
-      device: os-disk
-      size: -1
-    - type: format
-      id: root-format
-      volume: root-partition
-      fstype: ext4
-    - type: mount
-      id: root-mount
-      path: /
-      device: root-format
+{_single_disk_tail(split_docker)}
 """.strip()
 
 
@@ -167,7 +206,20 @@ storage:
 
 def emit_storage_yaml(mode: str) -> str:
     if mode == 'auto':
-        mode = detect_mode()
+        disks = _lsblk_disks()
+        if len(disks) == 1:
+            return emit_single_disk_yaml(
+                split_docker=disks[0].size_bytes >= SINGLE_DISK_SPLIT_MIN_BYTES
+            )
+        if len(disks) == 2:
+            if disks[0].size_bytes == disks[1].size_bytes:
+                raise RuntimeError(
+                    'ambiguous storage layout: exactly two disks were found, but they are the same size'
+                )
+            return emit_two_disk_yaml()
+        raise RuntimeError(
+            f'ambiguous storage layout: expected exactly 1 or 2 disks, found {len(disks)}'
+        )
     if mode == 'single-disk':
         return emit_single_disk_yaml()
     if mode == 'two-disk':

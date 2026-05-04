@@ -31,11 +31,11 @@ own `lsblk` output. This is important on Proxmox: resolving `auto` at ISO build
 time bakes in the builder's disk layout and can hand curtin a storage plan that
 does not match the VM.
 
-For one-disk autoinstall targets, the generated layout now keeps Docker/Vast on
-the root filesystem instead of forcing a separate 100G-root-plus-XFS remainder
-layout. That avoids curtin partitioning failures on common 100G-or-smaller
-virtual disks. Two-disk targets still mount the largest disk at
-`/var/lib/docker`.
+For one-disk autoinstall targets, the generated layout creates a 100G root
+partition plus an XFS `/var/lib/docker` partition when the disk is at least
+140GiB. Smaller one-disk targets use a root-only layout to avoid curtin
+partitioning failures on common 100G-or-smaller virtual disks. Two-disk targets
+still mount the largest disk at `/var/lib/docker`.
 
 ## Example render
 

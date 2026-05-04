@@ -5,7 +5,7 @@
 ### 1 disk
 - install Ubuntu on the only disk
 - keep Docker/Vast on the same disk
-- do not require a separate Docker partition during autoinstall
+- use a separate Docker partition only when the disk is large enough
 - no LVM
 
 ### 2 disks
@@ -40,8 +40,9 @@ For the clean two-disk case:
 - largest disk = Docker/Vast target
 
 If only one disk exists:
-- use it for both. The autoinstall path should prefer a root-only layout unless
-  the target disk is known to be large enough for an additional data partition.
+- use it for both. The autoinstall path creates a 100G root partition and uses
+  the remainder for `/var/lib/docker` when the disk is at least 140GiB. Smaller
+  disks use a root-only layout to avoid curtin partitioning failures.
 
 If 3+ plausible disks exist:
 - stop and require operator review
@@ -55,7 +56,8 @@ If 3+ plausible disks exist:
 ### Docker/Vast data disk
 - XFS
 - mounted at `/var/lib/docker`
-- only emitted automatically for the clean two-disk autoinstall case
+- emitted automatically for clean two-disk autoinstall targets and for
+  single-disk targets large enough to keep a separate Docker partition
 
 ## Future autoinstall output
 

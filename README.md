@@ -32,7 +32,7 @@ V1 is a real install engine that can later be embedded into an autoinstall or IS
 
 Build a trusted post-Ubuntu installer that can:
 - detect one-disk vs two-disk rigs
-- keep Docker/Vast on the root filesystem for single-disk autoinstall targets
+- use a separate Docker/Vast partition on single-disk autoinstall targets when the disk is large enough
 - use the biggest non-root disk for /var/lib/docker on two-disk rigs
 - install NVIDIA
 - install Vast
@@ -196,7 +196,7 @@ Current state:
 - first-run workflow mode exists
 - `--plan-only` preview mode exists
 - human-readable plan summary exists
-- single-disk phase-1 storage apply exists for post-Ubuntu installs (100G for /, rest for /var/lib/docker); autoinstall uses a safer root-only single-disk layout
+- single-disk phase-1 storage apply exists for post-Ubuntu installs (100G for /, rest for /var/lib/docker); autoinstall uses the same split on disks >=140GiB and falls back to root-only on smaller disks
 - two-disk phase-1 storage apply exists (largest non-root disk goes to /var/lib/docker)
 - plain-English storage confirmation prompts exist for destructive disk changes
 - three-phase manual flow exists (prep/update, NVIDIA, Vast)
