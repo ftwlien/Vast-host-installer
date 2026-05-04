@@ -2,23 +2,42 @@
 set -euo pipefail
 
 install_vast_cli() {
+  local user_local_bin vastai_bin
+
   banner "Optional Extra - Vast CLI"
+  user_local_bin="${HOME}/.local/bin"
+  vastai_bin="${user_local_bin}/vastai"
+
   if ! python3 -m pip --version >/dev/null 2>&1; then
     step "Installing python3-pip"
     sudo apt-get update
     sudo apt-get install -y python3-pip
   fi
+
   step "Installing Vast CLI"
-  python3 -m pip install --user vastai
+  python3 -m pip install --user --upgrade vastai
+
+  mkdir -p "$user_local_bin"
   if ! grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "${HOME}/.bashrc" 2>/dev/null; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${HOME}/.bashrc"
   fi
-  export PATH="${HOME}/.local/bin:${PATH}"
-  if [[ -x "${HOME}/.local/bin/vastai" ]]; then
+  export PATH="${user_local_bin}:${PATH}"
+  hash -r || true
+
+  [[ -x "$vastai_bin" ]] || die "Vast CLI install failed: ${vastai_bin} was not created by pip install"
+
+  step "Verifying Vast CLI by absolute path"
+  "$vastai_bin" --help >/dev/null 2>&1 || die "Vast CLI install failed: ${vastai_bin} exists but does not run"
+
+  if ! command -v vastai >/dev/null 2>&1; then
+    step "Creating /usr/local/bin/vastai symlink so the command works immediately"
+    sudo ln -sf "$vastai_bin" /usr/local/bin/vastai
     hash -r || true
   fi
-  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after pip install"
-  success "Vast CLI installed"
+
+  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after install and symlink step"
+  vastai --help >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command exists but does not run"
+  success "Vast CLI installed and ready"
 }
 
 install_rig_monitor_placeholder() {
