@@ -44,29 +44,29 @@ prompt_password_twice() {
 run_first_boot_questionnaire() {
   hero_banner
   banner "First Run Setup"
-  step "Quick setup first. Heavy lifting after that."
+  step "Answer once. The installer will handle the reboots and resume itself."
 
-  question "Machine identity"
-  read -r -p "Final hostname: " FIRST_BOOT_HOSTNAME
+  question "1/3 Machine identity"
+  read -r -p "Final hostname for this rig: " FIRST_BOOT_HOSTNAME
   [[ -n "$FIRST_BOOT_HOSTNAME" ]] || die "Hostname is required"
 
   read -r -p "Final operator username: " FIRST_BOOT_USERNAME
   [[ -n "$FIRST_BOOT_USERNAME" ]] || die "Final username is required"
   prompt_password_twice
 
-  question "Vast bootstrap"
-  prompt_box "Paste the full Vast install command from Vast.ai below (for example the wget/python command)."
+  question "2/3 Vast bootstrap"
+  prompt_box "Paste the full Vast.ai install command for this host."
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
-  question "Optional extras"
+  question "3/3 Optional extras"
   if prompt_yes_no "Install Vast CLI locally?" "y"; then
     FIRST_BOOT_INSTALL_VAST_CLI=1
   fi
-  if prompt_yes_no "Install rig-monitor (includes GPU temp helper setup)?" "y"; then
+  if prompt_yes_no "Install rig-monitor for local GPU/host checks?" "y"; then
     FIRST_BOOT_INSTALL_RIG_MONITOR=1
   fi
-  if prompt_yes_no "Install fleet-health prereqs?" "n"; then
+  if prompt_yes_no "Install Fleet Health Check prerequisites?" "n"; then
     FIRST_BOOT_INSTALL_FLEET_HEALTH=1
   fi
 }

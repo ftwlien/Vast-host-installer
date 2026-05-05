@@ -11,6 +11,7 @@ if [[ -t 1 ]]; then
   C_RED='\033[1;31m'
   C_CYAN='\033[1;36m'
   C_MAGENTA='\033[1;35m'
+  C_PURPLE='\033[1;38;5;93m'
 else
   C_RESET=''
   C_BOLD=''
@@ -21,22 +22,24 @@ else
   C_RED=''
   C_CYAN=''
   C_MAGENTA=''
+  C_PURPLE=''
 fi
 
 banner() {
-  printf '\n%b╔══════════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
-  printf '%b║ %s%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
-  printf '%b╚══════════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '\n%b╔════════════════════════════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '%b║ %-62s ║%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
+  printf '%b╚════════════════════════════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
 }
 
 hero_banner() {
-  printf '\n%b%s%b\n' "$C_MAGENTA$C_BOLD" '██╗   ██╗ █████╗ ███████╗████████╗' "$C_RESET"
-  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '██║   ██║██╔══██╗██╔════╝╚══██╔══╝' "$C_RESET"
-  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '██║   ██║███████║███████╗   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '╚██╗ ██╔╝██╔══██║╚════██║   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" ' ╚████╔╝ ██║  ██║███████║   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_MAGENTA$C_BOLD" '  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝   ' "$C_RESET"
-  printf '%b%s%b\n\n' "$C_DIM" 'Host Installer • clean phased setup for Vast rigs' "$C_RESET"
+  printf '\n%b%s%b\n' "$C_PURPLE$C_BOLD" '██╗   ██╗ █████╗ ███████╗████████╗' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║██╔══██╗██╔════╝╚══██╔══╝' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║███████║███████╗   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '╚██╗ ██╔╝██╔══██║╚════██║   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" ' ╚████╔╝ ██║  ██║███████║   ██║   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝   ' "$C_RESET"
+  printf '%b%s%b\n' "$C_CYAN$C_BOLD" 'Vast.ai Host Installer' "$C_RESET"
+  printf '%b%s%b\n\n' "$C_DIM" 'Automatic three-phase setup for production Vast rigs' "$C_RESET"
 }
 
 command_box() {
@@ -45,7 +48,7 @@ command_box() {
 }
 
 step() {
-  printf '%b→ %s%b\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"
+  printf '%b▶ %s%b\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"
 }
 
 success() {
