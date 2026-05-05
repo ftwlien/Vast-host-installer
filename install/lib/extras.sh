@@ -21,13 +21,14 @@ installer_target_home() {
 }
 
 install_vast_cli() {
-  local target_user target_home user_local_bin vastai_bin
+  local target_user target_home user_local_bin vastai_bin wrapper
 
   banner "Optional Extra - Vast CLI"
   target_user="$(installer_target_user)"
   target_home="$(installer_target_home "$target_user")"
   user_local_bin="${target_home}/.local/bin"
   vastai_bin="${user_local_bin}/vastai"
+  wrapper="/usr/local/bin/vastai"
 
   if ! python3 -m pip --version >/dev/null 2>&1; then
     step "Installing python3-pip"
@@ -47,17 +48,25 @@ install_vast_cli() {
 
   [[ -x "$vastai_bin" ]] || die "Vast CLI install failed: ${vastai_bin} was not created by pip install"
 
-  step "Verifying Vast CLI by absolute path"
-  "$vastai_bin" --help >/dev/null 2>&1 || die "Vast CLI install failed: ${vastai_bin} exists but does not run"
+  step "Verifying Vast CLI as ${target_user}"
+  sudo -H -u "$target_user" "$vastai_bin" --help >/dev/null 2>&1 || die "Vast CLI install failed: ${vastai_bin} exists but does not run as ${target_user}"
 
-  if ! command -v vastai >/dev/null 2>&1; then
-    step "Creating /usr/local/bin/vastai symlink so the command works immediately"
-    sudo ln -sf "$vastai_bin" /usr/local/bin/vastai
-    hash -r || true
-  fi
+  step "Creating /usr/local/bin/vastai wrapper"
+  sudo tee "$wrapper" >/dev/null <<EOF
+#!/bin/sh
+if [ "\$(id -un)" = "$target_user" ]; then
+  exec "$vastai_bin" "\$@"
+fi
+if [ "\$(id -u)" -eq 0 ]; then
+  exec runuser -u "$target_user" -- "$vastai_bin" "\$@"
+fi
+exec sudo -H -u "$target_user" "$vastai_bin" "\$@"
+EOF
+  sudo chmod 0755 "$wrapper"
+  hash -r || true
 
-  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after install and symlink step"
-  vastai --help >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command exists but does not run"
+  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after wrapper install"
+  vastai --help >/dev/null 2>&1 || die "Vast CLI install failed: wrapper exists but does not run"
   success "Vast CLI installed and ready"
 }
 
