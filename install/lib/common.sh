@@ -26,19 +26,32 @@ else
 fi
 
 banner() {
-  printf '\n%b╔════════════════════════════════════════════════════════════════╗%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
-  printf '%b║ %-62s ║%b\n' "$C_BLUE$C_BOLD" "$*" "$C_RESET"
-  printf '%b╚════════════════════════════════════════════════════════════════╝%b\n' "$C_BLUE$C_BOLD" "$C_RESET"
+  printf '\n%b╔════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║ %-62s ║%b\n' "$C_PURPLE$C_BOLD" "$*" "$C_RESET"
+  printf '%b╚════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+}
+
+success_banner() {
+  local title="$*"
+  local width=74
+  local left right
+  left=$(( (width - ${#title}) / 2 ))
+  right=$(( width - left - ${#title} ))
+  printf '\n%b╔════════════════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║                                                                            ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║%*s%s%*s║%b\n' "$C_PURPLE$C_BOLD" "$left" "" "$title" "$right" "" "$C_RESET"
+  printf '%b║                                                                            ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b╚════════════════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
 }
 
 hero_banner() {
-  printf '\n%b%s%b\n' "$C_PURPLE$C_BOLD" '██╗   ██╗ █████╗ ███████╗████████╗' "$C_RESET"
-  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║██╔══██╗██╔════╝╚══██╔══╝' "$C_RESET"
-  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║███████║███████╗   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '╚██╗ ██╔╝██╔══██║╚════██║   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" ' ╚████╔╝ ██║  ██║███████║   ██║   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝   ' "$C_RESET"
-  printf '%b%s%b\n' "$C_CYAN$C_BOLD" 'Vast.ai Host Installer' "$C_RESET"
+  printf '\n%b%s%b\n' "$C_PURPLE$C_BOLD" '██╗   ██╗ █████╗ ███████╗████████╗     █████╗ ██╗' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║██╔══██╗██╔════╝╚══██╔══╝    ██╔══██╗██║' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '██║   ██║███████║███████╗   ██║       ███████║██║' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '╚██╗ ██╔╝██╔══██║╚════██║   ██║       ██╔══██║██║' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" ' ╚████╔╝ ██║  ██║███████║   ██║       ██║  ██║██║' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" '  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝  ╚═╝╚═╝' "$C_RESET"
+  printf '%b%s%b\n' "$C_PURPLE$C_BOLD" 'VAST AI Host Installer' "$C_RESET"
   printf '%b%s%b\n\n' "$C_DIM" 'Automatic three-phase setup for production Vast rigs' "$C_RESET"
 }
 

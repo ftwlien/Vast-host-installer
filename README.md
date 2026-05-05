@@ -80,30 +80,30 @@ Autoinstall/bootstrap scaffolding now exists in:
 - `docs/ISO-PLAN.md`
 - `docs/ISO-BUILD-PIPELINE.md`
 
-## Current ISO testing artifact
+## Current ISO
 
 Latest GitHub release download:
 
 - <https://github.com/ftwlien/Vast-host-installer/releases/latest>
 
-Direct current ISO download:
+The ISO boots Ubuntu Server autoinstall and embeds the installer payload under:
 
-- <https://github.com/ftwlien/Vast-host-installer/releases/download/v0.1.2/vast-host-installer-jammy-custom.iso>
+- `/opt/vast-host-installer`
 
 Local bot1 build path:
 
-- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-jammy-custom.iso`
+- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-v1.0.6.iso`
 
-Read-only plan preview:
+After Ubuntu finishes and you log in, start setup with:
 
 ```bash
-bash install/main.sh --profile fresh-two-disk --plan-only
+sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
 ```
 
-First-run workflow mode:
+Watch automatic phase resume after reboots with:
 
 ```bash
-bash install/main.sh --first-run
+sudo journalctl -fu vast-host-installer-auto-resume.service
 ```
 
 This mode now:
