@@ -106,6 +106,12 @@ Watch automatic phase resume after reboots with:
 sudo journalctl -fu vast-host-installer-auto-resume.service
 ```
 
+After Phase 2 installs the NVIDIA driver and reboots, Phase 3 intentionally waits for a real SSH/console login because the Vast installer is interactive and asks for port settings. Log in and run:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
 This mode now:
 - asks for final hostname
 - asks for final operator username + password
@@ -148,7 +154,7 @@ It does **not** fully undo:
 - then tells you to reboot
 - phase 2 after reboot: installs/configures NVIDIA open drivers
 - then tells you to reboot again
-- phase 3 after second reboot: verifies NVIDIA, runs the Vast install command, and finishes setup
+- phase 3 after second reboot: waits for manual SSH/console resume, runs the interactive Vast install command, verifies Docker/NVIDIA runtime/Vast service, and finishes setup
 
 Resume after each reboot:
 

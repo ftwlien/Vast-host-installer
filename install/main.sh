@@ -14,6 +14,7 @@ APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
 RESUME_MODE=0
 AUTO_RUN=0
+CURRENT_AUTO_RUN=0
 NO_AUTO_REBOOT=0
 RESUME_AFTER_REBOOT=0
 RESUME_AFTER_NVIDIA_REBOOT=0
@@ -114,6 +115,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --auto-run)
       AUTO_RUN=1
+      CURRENT_AUTO_RUN=1
       shift
       ;;
     --no-auto-reboot)
@@ -215,6 +217,33 @@ continue_after_phase() {
   prompt_reboot_now
 }
 
+continue_to_manual_phase3() {
+  local next_step="$1"
+  disable_auto_resume
+  echo "$next_step"
+  echo "Phase 3 is interactive because the Vast installer asks for ports."
+  echo "Auto-resume is disabled now so systemd will not run the Vast installer without your terminal."
+  command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+  if [[ "$AUTO_RUN" -eq 1 && "$NO_AUTO_REBOOT" -ne 1 ]]; then
+    echo "Auto mode: rebooting now. Log in after boot and run the command above."
+    sudo reboot
+    exit 0
+  fi
+  prompt_reboot_now
+}
+
+require_interactive_phase3() {
+  if [[ "$CURRENT_AUTO_RUN" -eq 1 || ! -t 0 ]]; then
+    disable_auto_resume
+    banner "Phase 3 - Manual Vast Setup Required"
+    echo "NVIDIA setup is complete."
+    echo "The Vast installer is interactive and must run from your SSH/console session."
+    echo "Log in and run:"
+    command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+    exit 0
+  fi
+}
+
 mark_setup_complete() {
   sudo mkdir -p "$STATE_DIR"
   printf 'completed_at=%s\nprofile=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROFILE" | sudo tee "$STATE_DIR/setup-complete" >/dev/null
@@ -303,12 +332,13 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   summary_box "What was done" \
     "Recommended NVIDIA driver was installed" \
     "GPU driver readiness was checked" \
-    "Resume state was saved for the final Vast phase"
-  continue_after_phase "Next step: reboot, then Vast setup will continue."
+    "Resume state was saved for the final interactive Vast phase"
+  continue_to_manual_phase3 "Next step: reboot, then run Phase 3 manually from SSH/console."
 fi
 
 if [[ "$RESUME_AFTER_NVIDIA_REBOOT" -eq 1 ]]; then
   [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-nvidia-reboot requires --apply"
+  require_interactive_phase3
 fi
 
 if [[ "$APPLY_CHANGES" -ne 1 ]]; then

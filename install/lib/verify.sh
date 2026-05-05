@@ -2,12 +2,14 @@
 set -euo pipefail
 
 verify_host_state() {
+  local failed=0
   echo "VERIFY_BEGIN"
   echo "CHECK=nvidia-smi"
-  if command -v nvidia-smi >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1 | sed 's/^/RESULT=driver:/' || echo "RESULT=driver:unknown"
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1 | sed 's/^/RESULT=driver:/'
   else
     echo "RESULT=nvidia-smi:missing"
+    failed=1
   fi
 
   echo "CHECK=docker"
@@ -15,6 +17,7 @@ verify_host_state() {
     echo "RESULT=docker:active"
   else
     echo "RESULT=docker:inactive"
+    failed=1
   fi
 
   echo "CHECK=nvidia-runtime"
@@ -22,6 +25,7 @@ verify_host_state() {
     echo "RESULT=nvidia-runtime:present"
   else
     echo "RESULT=nvidia-runtime:missing"
+    failed=1
   fi
 
   echo "CHECK=vast-service"
@@ -29,6 +33,7 @@ verify_host_state() {
     echo "RESULT=vastai:active"
   else
     echo "RESULT=vastai:inactive"
+    failed=1
   fi
 
   echo "CHECK=vast-port-range"
@@ -36,6 +41,7 @@ verify_host_state() {
     printf 'RESULT=host-port-range:%s\n' "$(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null)"
   else
     echo "RESULT=host-port-range:missing"
+    echo "WARN=host-port-range file missing; not failing because Vast interactive setup may own port collection"
   fi
 
   echo "CHECK=console-reachability"
@@ -45,4 +51,7 @@ verify_host_state() {
     echo "RESULT=console:fail"
   fi
   echo "VERIFY_END"
+  if [[ "$failed" -ne 0 ]]; then
+    die "Final verification failed. Vast setup is not complete; see VERIFY results above."
+  fi
 }

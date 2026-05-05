@@ -16,6 +16,9 @@ install_vast_host_from_known_good_flow() {
 
   if [[ -n "$install_cmd" ]]; then
     local vast_tmp
+    if [[ "$install_cmd" == *"--interactive"* && ! -t 0 ]]; then
+      die "The saved Vast install command is interactive. Run phase 3 from a real SSH/console terminal with: sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+    fi
     vast_tmp="$(mktemp -d /tmp/vast-install.XXXXXX)"
     sanitized_cmd="$(printf '%s' "$install_cmd" | sed -E 's/[[:space:]]*;?[[:space:]]*history -d .*?$//')"
     log "running provided Vast install command in $vast_tmp"
