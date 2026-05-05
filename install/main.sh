@@ -284,7 +284,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   run_base_system_prep_from_known_good_flow
   save_resume_state after-reboot
 
-  success_banner "PHASE 1 COMPLETE"
+  success_banner "PHASE 1 COMPLETE - REBOOTING NEXT"
   summary_box "What was done" \
     "Final hostname was set" \
     "Operator user was created" \
@@ -299,7 +299,7 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   banner "Phase 2 - NVIDIA Open Driver Setup"
   install_nvidia_590_open_from_known_good_flow
   save_resume_state after-nvidia-reboot
-  success_banner "PHASE 2 COMPLETE"
+  success_banner "PHASE 2 COMPLETE - NVIDIA READY"
   summary_box "What was done" \
     "Recommended NVIDIA driver was installed" \
     "GPU driver readiness was checked" \
@@ -345,7 +345,7 @@ fi
 
 verify_host_state
 mark_setup_complete
-success_banner "INSTALL COMPLETE"
+success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 summary_box "What was done" \
   "Profile applied: $PROFILE" \
   "Vast install flow finished" \

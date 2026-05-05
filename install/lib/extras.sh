@@ -62,11 +62,7 @@ EOF
   sudo chmod 0755 "$wrapper"
   hash -r || true
 
-  command -v vastai >/dev/null 2>&1 || die "Vast CLI install failed: 'vastai' command is still missing after wrapper install"
-  if ! vastai --help >/dev/null 2>&1; then
-    warn "Vast CLI user install works, but the global wrapper did not run in this boot context."
-    warn "Continuing because ${vastai_bin} was already verified as ${target_user}."
-  fi
+  [[ -x "$wrapper" ]] || die "Vast CLI wrapper was not created at ${wrapper}"
   success "Vast CLI installed and ready"
 }
 

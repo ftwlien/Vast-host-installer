@@ -11,7 +11,7 @@ if [[ -t 1 ]]; then
   C_RED='\033[1;31m'
   C_CYAN='\033[1;36m'
   C_MAGENTA='\033[1;35m'
-  C_PURPLE='\033[1;38;5;93m'
+  C_PURPLE='\033[1;38;5;201m'
 else
   C_RESET=''
   C_BOLD=''
@@ -26,22 +26,24 @@ else
 fi
 
 banner() {
-  printf '\n%b╔════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
-  printf '%b║ %-62s ║%b\n' "$C_PURPLE$C_BOLD" "$*" "$C_RESET"
-  printf '%b╚════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '\n%b╔════════════════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║ %-74s ║%b\n' "$C_PURPLE$C_BOLD" "$*" "$C_RESET"
+  printf '%b╚════════════════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
 }
 
 success_banner() {
   local title="$*"
-  local width=74
+  local width=84
   local left right
   left=$(( (width - ${#title}) / 2 ))
   right=$(( width - left - ${#title} ))
-  printf '\n%b╔════════════════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
-  printf '%b║                                                                            ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '\n%b╔══════════════════════════════════════════════════════════════════════════════════════╗%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║                                                                                      ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║                                                                                      ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
   printf '%b║%*s%s%*s║%b\n' "$C_PURPLE$C_BOLD" "$left" "" "$title" "$right" "" "$C_RESET"
-  printf '%b║                                                                            ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
-  printf '%b╚════════════════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║                                                                                      ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b║                                                                                      ║%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  printf '%b╚══════════════════════════════════════════════════════════════════════════════════════╝%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
 }
 
 hero_banner() {
@@ -61,7 +63,7 @@ command_box() {
 }
 
 step() {
-  printf '%b▶ %s%b\n' "$C_CYAN$C_BOLD" "$*" "$C_RESET"
+  printf '%b▶ %s%b\n' "$C_PURPLE$C_BOLD" "$*" "$C_RESET"
 }
 
 success() {
@@ -82,7 +84,7 @@ die() {
 }
 
 prompt_box() {
-  printf '\n%b%s%b\n' "$C_YELLOW$C_BOLD" "$1" "$C_RESET"
+  printf '\n%b%s%b\n' "$C_PURPLE$C_BOLD" "$1" "$C_RESET"
 }
 
 question() {
