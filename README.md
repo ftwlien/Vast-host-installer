@@ -92,7 +92,7 @@ The ISO boots Ubuntu Server autoinstall and embeds the installer payload under:
 
 Local bot1 build path:
 
-- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-v1.0.6.iso`
+- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-v1.0.9.iso`
 
 After Ubuntu finishes and you log in, start setup with:
 
@@ -112,6 +112,12 @@ After Phase 2 installs the NVIDIA driver and reboots, Phase 3 intentionally wait
 sudo /opt/vast-host-installer/bin/vast-host-installer --resume
 ```
 
+Optional readiness check before manual Phase 3:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3
+```
+
 This mode now:
 - asks for final hostname
 - asks for final operator username + password
@@ -124,8 +130,14 @@ If you choose the optional Vast CLI install, the CLI is installed on the host fo
 
 ```bash
 vastai set api-key YOUR_API_KEY
-vastai show user
+vastai show machines
+vastai self-test machine YOUR_MACHINE_ID
+vastai self-test machine YOUR_MACHINE_ID --ignore-requirements
 ```
+
+More CLI examples:
+
+- <https://docs.vast.ai/cli/hello-world>
 
 ### Reset installer-added tools for another test run
 

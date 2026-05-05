@@ -35,16 +35,14 @@ cat <<'EOF'
  ╚████╔╝ ██║  ██║███████║   ██║       ██║  ██║██║
   ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝  ╚═╝╚═╝
 EOF
-printf '%s' "$reset"
-cat <<'EOF'
-
- VAST AI Host Installer is ready.
- ----------------------------------------------------------------
- Ubuntu is installed and the Vast bootstrap tools are on this host.
-
 EOF
+printf '%s%s' "$purple" "$bold"
+printf '\n VAST AI Host Installer is ready.\n'
+printf ' ----------------------------------------------------------------\n'
+printf ' Ubuntu is installed and the Vast bootstrap tools are on this host.\n\n'
 printf ' %s\n\n' "$resume_text"
 printf '   %s\n' "$resume_cmd"
+printf '%s' "$reset"
 cat <<'EOF'
 
  ----------------------------------------------------------------

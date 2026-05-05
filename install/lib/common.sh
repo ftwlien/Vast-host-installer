@@ -62,6 +62,15 @@ command_box() {
   printf '%b%s%b\n\n' "$C_GREEN$C_BOLD" "$1" "$C_RESET"
 }
 
+command_list_box() {
+  local line
+  printf '\n%bNEXT COMMANDS%b\n' "$C_PURPLE$C_BOLD" "$C_RESET"
+  for line in "$@"; do
+    printf '%b%s%b\n' "$C_GREEN$C_BOLD" "$line" "$C_RESET"
+  done
+  printf '\n'
+}
+
 step() {
   printf '%b▶ %s%b\n' "$C_PURPLE$C_BOLD" "$*" "$C_RESET"
 }

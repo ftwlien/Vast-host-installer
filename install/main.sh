@@ -10,6 +10,7 @@ WITH_VAST_CLI=0
 WITH_RIG_MONITOR=0
 WITH_FLEET_HEALTH=0
 PLAN_ONLY=0
+PREFLIGHT_PHASE3=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
 RESUME_MODE=0
@@ -56,6 +57,7 @@ Options:
   --confirm-disk <device>
   --detect-only
   --plan-only
+  --preflight-phase3
   --first-run
   --resume
   --auto-run
@@ -103,6 +105,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --plan-only)
       PLAN_ONLY=1
+      shift
+      ;;
+    --preflight-phase3)
+      PREFLIGHT_PHASE3=1
       shift
       ;;
     --first-run)
@@ -276,6 +282,11 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+if [[ "$PREFLIGHT_PHASE3" -eq 1 ]]; then
+  preflight_phase3
+  exit 0
+fi
+
 if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   AUTO_RUN=1
   run_first_boot_questionnaire
@@ -382,7 +393,12 @@ summary_box "What was done" \
   "Requested extras were installed" \
   "Final verification completed"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
-  echo "Optional next step: set your Vast API key when you are ready."
-  command_box "vastai set api-key YOUR_API_KEY && vastai show user"
+  echo "Optional next steps: connect the Vast CLI and test this machine."
+  command_list_box \
+    "vastai set api-key YOUR_API_KEY" \
+    "vastai show machines" \
+    "vastai self-test machine YOUR_MACHINE_ID" \
+    "vastai self-test machine YOUR_MACHINE_ID --ignore-requirements"
+  echo "More CLI examples: https://docs.vast.ai/cli/hello-world"
 fi
 success "Host setup finished"
