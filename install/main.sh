@@ -289,6 +289,8 @@ if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
 fi
 
 verify_host_state
+sudo mkdir -p /var/lib/vast-host-installer
+printf 'completed_at=%s\nprofile=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROFILE" | sudo tee /var/lib/vast-host-installer/setup-complete >/dev/null
 banner "Install Complete"
 summary_box "What was done" \
   "Profile applied: $PROFILE" \
