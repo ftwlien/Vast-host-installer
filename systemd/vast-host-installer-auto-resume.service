@@ -1,0 +1,14 @@
+[Unit]
+Description=Vast Host Installer automatic phase resume
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/vast-host-installer/resume.env
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vast-host-installer/bin/vast-host-installer --resume --auto-run
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

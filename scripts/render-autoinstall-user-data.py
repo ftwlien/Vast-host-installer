@@ -111,6 +111,7 @@ def render_late_commands() -> str:
     - ['tar', '-xzf', '/cdrom/opt-vast-host-installer-overlay/vast-host-installer-payload.tgz', '-C', '/target/opt/vast-host-installer']
     - ['cp', '/target/opt/vast-host-installer/install/profile.d/vast-host-installer.sh', '/target/etc/profile.d/vast-host-installer.sh']
     - ['cp', '/target/opt/vast-host-installer/systemd/vast-host-installer-first-run-notice.service', '/target/etc/systemd/system/vast-host-installer-first-run-notice.service']
+    - ['cp', '/target/opt/vast-host-installer/systemd/vast-host-installer-auto-resume.service', '/target/etc/systemd/system/vast-host-installer-auto-resume.service']
     - ['curtin', 'in-target', '--target=/target', '--', 'chmod', '+x', '/opt/vast-host-installer/bin/vast-host-installer']
     - ['curtin', 'in-target', '--target=/target', '--', 'chmod', '0644', '/etc/profile.d/vast-host-installer.sh']
     - ['curtin', 'in-target', '--target=/target', '--', 'systemctl', 'enable', 'vast-host-installer-first-run-notice.service']

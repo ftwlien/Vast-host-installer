@@ -2,8 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-STATE_DIR="${HOME}/.config/vast-host-installer"
+STATE_DIR="/var/lib/vast-host-installer"
 STATE_FILE="${STATE_DIR}/resume.env"
+AUTO_RESUME_SERVICE="vast-host-installer-auto-resume.service"
 PROFILE="fresh-basic"
 WITH_VAST_CLI=0
 WITH_RIG_MONITOR=0
@@ -12,6 +13,8 @@ PLAN_ONLY=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
 RESUME_MODE=0
+AUTO_RUN=0
+NO_AUTO_REBOOT=0
 RESUME_AFTER_REBOOT=0
 RESUME_AFTER_NVIDIA_REBOOT=0
 CONFIRM_DISK=""
@@ -53,6 +56,8 @@ Options:
   --plan-only
   --first-run
   --resume
+  --auto-run
+  --no-auto-reboot
   --resume-after-reboot
   --resume-after-nvidia-reboot
   --apply
@@ -106,6 +111,14 @@ while [[ $# -gt 0 ]]; do
       RESUME_MODE=1
       shift
       ;;
+    --auto-run)
+      AUTO_RUN=1
+      shift
+      ;;
+    --no-auto-reboot)
+      NO_AUTO_REBOOT=1
+      shift
+      ;;
     --resume-after-reboot)
       RESUME_AFTER_REBOOT=1
       shift
@@ -131,13 +144,18 @@ done
 save_resume_state() {
   local next_phase="$1"
   mkdir -p "$STATE_DIR"
-  cat > "$STATE_FILE" <<EOF
-PROFILE='${PROFILE}'
-ROOT_DIR='${ROOT_DIR}'
-VAST_INSTALL_COMMAND='${VAST_INSTALL_COMMAND}'
-VAST_PORT_RANGE='${VAST_PORT_RANGE}'
-NEXT_PHASE='${next_phase}'
-EOF
+  {
+    printf 'PROFILE=%q\n' "$PROFILE"
+    printf 'ROOT_DIR=%q\n' "$ROOT_DIR"
+    printf 'VAST_INSTALL_COMMAND=%q\n' "$VAST_INSTALL_COMMAND"
+    printf 'VAST_PORT_RANGE=%q\n' "$VAST_PORT_RANGE"
+    printf 'WITH_VAST_CLI=%q\n' "$WITH_VAST_CLI"
+    printf 'WITH_RIG_MONITOR=%q\n' "$WITH_RIG_MONITOR"
+    printf 'WITH_FLEET_HEALTH=%q\n' "$WITH_FLEET_HEALTH"
+    printf 'AUTO_RUN=%q\n' "$AUTO_RUN"
+    printf 'NEXT_PHASE=%q\n' "$next_phase"
+  } > "$STATE_FILE"
+  chmod 0600 "$STATE_FILE"
 }
 
 load_resume_state() {
@@ -148,6 +166,10 @@ load_resume_state() {
   ROOT_DIR="${ROOT_DIR:-$ROOT_DIR}"
   VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
   VAST_PORT_RANGE="${VAST_PORT_RANGE:-}"
+  WITH_VAST_CLI="${WITH_VAST_CLI:-0}"
+  WITH_RIG_MONITOR="${WITH_RIG_MONITOR:-0}"
+  WITH_FLEET_HEALTH="${WITH_FLEET_HEALTH:-0}"
+  AUTO_RUN="${AUTO_RUN:-0}"
   case "${NEXT_PHASE:-}" in
     after-reboot)
       RESUME_AFTER_REBOOT=1
@@ -161,6 +183,40 @@ load_resume_state() {
       die "Saved resume state is invalid or missing NEXT_PHASE."
       ;;
   esac
+}
+
+enable_auto_resume() {
+  sudo systemctl daemon-reload || true
+  if systemctl list-unit-files "$AUTO_RESUME_SERVICE" >/dev/null 2>&1; then
+    sudo systemctl enable "$AUTO_RESUME_SERVICE" >/dev/null
+  fi
+}
+
+disable_auto_resume() {
+  if systemctl list-unit-files "$AUTO_RESUME_SERVICE" >/dev/null 2>&1; then
+    sudo systemctl disable "$AUTO_RESUME_SERVICE" >/dev/null 2>&1 || true
+  fi
+}
+
+continue_after_phase() {
+  local next_step="$1"
+  if [[ "$AUTO_RUN" -eq 1 && "$NO_AUTO_REBOOT" -ne 1 ]]; then
+    enable_auto_resume
+    echo "$next_step"
+    echo "Auto mode: rebooting now. Setup will continue automatically after boot."
+    sudo reboot
+    exit 0
+  fi
+  echo "$next_step"
+  command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+  prompt_reboot_now
+}
+
+mark_setup_complete() {
+  sudo mkdir -p "$STATE_DIR"
+  printf 'completed_at=%s\nprofile=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROFILE" | sudo tee "$STATE_DIR/setup-complete" >/dev/null
+  sudo rm -f "$STATE_FILE"
+  disable_auto_resume
 }
 
 ensure_basic_tools
@@ -189,6 +245,7 @@ if [[ "$PLAN_ONLY" -eq 1 ]]; then
 fi
 
 if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
+  AUTO_RUN=1
   run_first_boot_questionnaire
   PROFILE="$(infer_profile_from_layout)"
   VAST_INSTALL_COMMAND="$FIRST_BOOT_VAST_INSTALL_COMMAND"
@@ -230,10 +287,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
     "Storage layout was prepared for this rig" \
     "Base system prep finished" \
     "Resume state was saved for phase 2"
-  echo "Next step: reboot, then continue with NVIDIA setup."
-  command_box "cd $ROOT_DIR && bash install/main.sh --resume"
-  prompt_reboot_now
-  exit 0
+  continue_after_phase "Next step: reboot, then NVIDIA setup will continue."
 fi
 
 if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
@@ -246,10 +300,7 @@ if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
     "Recommended NVIDIA driver was installed" \
     "GPU driver readiness was checked" \
     "Resume state was saved for the final Vast phase"
-  echo "Next step: reboot, then continue with Vast setup."
-  command_box "cd $ROOT_DIR && bash install/main.sh --resume"
-  prompt_reboot_now
-  exit 0
+  continue_after_phase "Next step: reboot, then Vast setup will continue."
 fi
 
 if [[ "$RESUME_AFTER_NVIDIA_REBOOT" -eq 1 ]]; then
@@ -289,8 +340,7 @@ if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
 fi
 
 verify_host_state
-sudo mkdir -p /var/lib/vast-host-installer
-printf 'completed_at=%s\nprofile=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PROFILE" | sudo tee /var/lib/vast-host-installer/setup-complete >/dev/null
+mark_setup_complete
 banner "Install Complete"
 summary_box "What was done" \
   "Profile applied: $PROFILE" \
