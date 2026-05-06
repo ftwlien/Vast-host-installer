@@ -226,17 +226,18 @@ EOF
 }
 
 install_cpu_burn() {
-  local wrapper
-  wrapper="/usr/local/bin/cpu_burn"
+  local cpu_wrapper ram_wrapper
+  cpu_wrapper="/usr/local/bin/cpu_burn"
+  ram_wrapper="/usr/local/bin/memtester"
 
-  banner "Optional Extra - CPU Burn Stress Test"
+  banner "Optional Extra - CPU/RAM Burn Stress Tests"
 
-  step "Installing CPU stress-test dependency"
+  step "Installing CPU/RAM stress-test dependencies"
   sudo apt-get update
-  sudo apt-get install -y stress-ng
+  sudo apt-get install -y stress-ng memtester memtest86+
 
   step "Installing cpu_burn command"
-  sudo tee "$wrapper" >/dev/null <<'EOF'
+  sudo tee "$cpu_wrapper" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -251,15 +252,46 @@ esac
 
 exec stress-ng --cpu 0 --cpu-method matrixprod --verify --metrics-brief --timeout "${seconds}s"
 EOF
-  sudo chmod 0755 "$wrapper"
-  sudo bash -n "$wrapper"
+  sudo chmod 0755 "$cpu_wrapper"
+  sudo bash -n "$cpu_wrapper"
+
+  step "Installing memtester command"
+  sudo tee "$ram_wrapper" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+seconds="${1:-60}"
+case "$seconds" in
+  ''|*[!0-9]*)
+    echo "Usage: memtester [seconds]" >&2
+    echo "Example: memtester 60" >&2
+    exit 2
+    ;;
+esac
+
+memory_mb="${MEMTESTER_MB:-}"
+if [[ -z "$memory_mb" ]]; then
+  available_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+  memory_mb=$(( available_mb * 80 / 100 ))
+fi
+if (( memory_mb < 64 )); then
+  echo "Not enough available memory for memtester (${memory_mb}M calculated)" >&2
+  exit 1
+fi
+
+# Use timeout for seconds-based UX while preserving memtester's dedicated RAM test behavior.
+exec timeout --foreground "${seconds}s" /usr/bin/memtester "${memory_mb}M" 1
+EOF
+  sudo chmod 0755 "$ram_wrapper"
+  sudo bash -n "$ram_wrapper"
 
   if ! command -v stress-ng >/dev/null 2>&1; then
     die "stress-ng install failed: command not found after apt install"
   fi
-  [[ -x "$wrapper" ]] || die "cpu_burn wrapper was not created at ${wrapper}"
+  [[ -x "$cpu_wrapper" ]] || die "cpu_burn wrapper was not created at ${cpu_wrapper}"
+  [[ -x "$ram_wrapper" ]] || die "memtester wrapper was not created at ${ram_wrapper}"
 
-  success "CPU burn installed. Test with: cpu_burn 60"
+  success "CPU/RAM burn installed. Test with: cpu_burn 60 and memtester 60. Memtest86+ is available from the boot menu."
 }
 
 install_full_burn_if_ready() {
@@ -284,34 +316,304 @@ case "$seconds" in
     ;;
 esac
 
-echo "Starting CPU + GPU burn for ${seconds}s"
+log_dir="${FULL_BURN_LOG_DIR:-$HOME/burn-logs}"
+mkdir -p "$log_dir"
+log_file="$log_dir/full_burn-$(date +%Y%m%d-%H%M%S).log"
+
+exec > >(tee -a "$log_file") 2>&1
+
+echo "full_burn log: $log_file"
+echo "Starting CPU + GPU + RAM burn for ${seconds}s"
+echo "Host: $(hostname)"
+echo "Start: $(date -Is)"
+
 cpu_burn "$seconds" &
 cpu_pid=$!
 gpu_burn -tc -m 100% "$seconds" &
 gpu_pid=$!
+ram_pressure_pid=""
+if command -v stress-ng >/dev/null 2>&1; then
+  stress-ng --vm 0 --vm-bytes 50% --verify --metrics-brief --timeout "${seconds}s" &
+  ram_pressure_pid=$!
+else
+  echo "stress-ng not found; running CPU + GPU only" >&2
+fi
 
 cleanup() {
-  kill "$cpu_pid" "$gpu_pid" >/dev/null 2>&1 || true
+  kill "$cpu_pid" "$gpu_pid" ${ram_pressure_pid:+"$ram_pressure_pid"} >/dev/null 2>&1 || true
   wait "$cpu_pid" >/dev/null 2>&1 || true
   wait "$gpu_pid" >/dev/null 2>&1 || true
+  if [[ -n "$ram_pressure_pid" ]]; then
+    wait "$ram_pressure_pid" >/dev/null 2>&1 || true
+  fi
 }
 trap 'cleanup; exit 130' INT TERM
 
 cpu_status=0
 gpu_status=0
+ram_status=0
 wait "$cpu_pid" || cpu_status=$?
 wait "$gpu_pid" || gpu_status=$?
+if [[ -n "$ram_pressure_pid" ]]; then
+  wait "$ram_pressure_pid" || ram_status=$?
+fi
 
-if [[ "$cpu_status" -ne 0 || "$gpu_status" -ne 0 ]]; then
-  echo "full_burn finished with errors: cpu=${cpu_status}, gpu=${gpu_status}" >&2
+if [[ "$cpu_status" -ne 0 || "$gpu_status" -ne 0 || "$ram_status" -ne 0 ]]; then
+  echo "full_burn finished with errors: cpu=${cpu_status}, gpu=${gpu_status}, ram=${ram_status}" >&2
   exit 1
 fi
 
+echo "End: $(date -Is)"
 echo "full_burn completed successfully"
+echo "Log saved to: $log_file"
 EOF
   sudo chmod 0755 "$wrapper"
   sudo bash -n "$wrapper"
   success "Full burn installed. Test with: full_burn 7200"
+}
+
+install_host_polish_tools() {
+  local storage_layout disk_health vast_ready_check vast_cleanup
+  storage_layout="/usr/local/bin/storage_layout"
+  disk_health="/usr/local/bin/disk_health"
+  vast_ready_check="/usr/local/bin/vast_ready_check"
+  vast_cleanup="/usr/local/bin/vast_cleanup"
+
+  banner "Host Polish Tools"
+
+  step "Installing disk/network diagnostic dependencies"
+  sudo apt-get update
+  sudo apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil
+
+  if ! command -v speedtest >/dev/null 2>&1 && ! command -v speedtest-cli >/dev/null 2>&1; then
+    step "Installing speedtest-cli fallback"
+    sudo apt-get install -y speedtest-cli || true
+  fi
+
+  step "Installing storage_layout command"
+  sudo tee "$storage_layout" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "== Storage layout overview =="
+echo "Host: $(hostname)"
+echo "Time: $(date -Is)"
+echo
+
+printf '%-12s %-10s %-8s %-8s %-12s %-20s %s\n' "DEVICE" "SIZE" "TYPE" "FSTYPE" "MOUNT" "MODEL" "UUID"
+lsblk -e7 -P -o NAME,PATH,SIZE,TYPE,FSTYPE,UUID,MOUNTPOINTS,MODEL | while IFS= read -r line; do
+  eval "$line"
+  mount="${MOUNTPOINTS:-}"
+  mount="${mount//$'\n'/,}"
+  printf '%-12s %-10s %-8s %-8s %-12s %-20s %s\n' "${PATH:-/dev/$NAME}" "${SIZE:-}" "${TYPE:-}" "${FSTYPE:--}" "${mount:--}" "${MODEL:--}" "${UUID:--}"
+done
+
+echo
+echo "== Filesystem usage =="
+df -hT / /boot/efi /var/lib/docker 2>/dev/null || df -hT
+
+echo
+echo "== Important mounts =="
+for mount in / /boot/efi /var/lib/docker; do
+  if findmnt "$mount" >/dev/null 2>&1; then
+    source="$(findmnt -no SOURCE "$mount")"
+    fstype="$(findmnt -no FSTYPE "$mount")"
+    opts="$(findmnt -no OPTIONS "$mount")"
+    echo "$mount -> $source ($fstype)"
+    if [[ "$mount" == "/var/lib/docker" ]]; then
+      if [[ "$fstype" == "xfs" && "$opts" == *prjquota* ]]; then
+        echo "  Docker storage: OK, XFS with prjquota"
+      else
+        echo "  Docker storage: WARNING, expected XFS with prjquota"
+        echo "  Options: $opts"
+      fi
+    fi
+  else
+    echo "$mount -> not mounted"
+  fi
+done
+SCRIPT
+  sudo chmod 0755 "$storage_layout"
+  sudo bash -n "$storage_layout"
+
+  step "Installing disk_health command"
+  sudo tee "$disk_health" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "== Disk layout =="
+lsblk -e7 -o NAME,PATH,SIZE,TYPE,FSTYPE,LABEL,UUID,MOUNTPOINTS,MODEL,SERIAL
+
+echo
+echo "== Filesystem usage =="
+df -hT / /boot/efi /var/lib/docker 2>/dev/null || df -hT
+
+echo
+echo "== NVMe SMART summaries =="
+shopt -s nullglob
+nvmes=(/dev/nvme*n1)
+if ((${#nvmes[@]} == 0)); then
+  echo "No NVMe disks found."
+else
+  for dev in "${nvmes[@]}"; do
+    echo
+    echo "--- $dev ---"
+    if command -v nvme >/dev/null 2>&1; then
+      sudo nvme smart-log "$dev" 2>/dev/null || true
+    fi
+    if command -v smartctl >/dev/null 2>&1; then
+      sudo smartctl -H -A "$dev" 2>/dev/null || true
+    fi
+  done
+fi
+SCRIPT
+  sudo chmod 0755 "$disk_health"
+  sudo bash -n "$disk_health"
+
+  step "Installing vast_ready_check command"
+  sudo tee "$vast_ready_check" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -uo pipefail
+
+pass=0
+fail=0
+warn=0
+
+ok() { printf '✓ %s\n' "$*"; pass=$((pass+1)); }
+bad() { printf '✗ %s\n' "$*"; fail=$((fail+1)); }
+soft() { printf '! %s\n' "$*"; warn=$((warn+1)); }
+has() { command -v "$1" >/dev/null 2>&1; }
+active() { systemctl is-active --quiet "$1" 2>/dev/null; }
+enabled() { systemctl is-enabled --quiet "$1" 2>/dev/null; }
+
+check_service() {
+  local svc="$1"
+  if systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null | grep -q "^${svc}\.service"; then
+    active "$svc" && ok "${svc} service active" || bad "${svc} service not active"
+  else
+    soft "${svc} service not installed"
+  fi
+}
+
+echo "== Vast host readiness check =="
+echo "Host: $(hostname)"
+echo "Time: $(date -Is)"
+echo
+
+has docker && ok "docker command installed" || bad "docker command missing"
+check_service docker
+check_service containerd
+check_service vastai
+check_service vast_metrics
+check_service nvidia-persistenced
+check_service nvidia-xorg
+check_service gpu-fan
+
+echo
+if has nvidia-smi && nvidia-smi >/dev/null 2>&1; then
+  ok "nvidia-smi works"
+  nvidia-smi --query-gpu=index,name,driver_version,temperature.gpu,fan.speed,power.draw,memory.total,memory.used --format=csv,noheader,nounits 2>/dev/null | while IFS= read -r line; do
+    echo "  GPU: $line"
+  done
+else
+  bad "nvidia-smi failed"
+fi
+
+if has docker; then
+  docker_root="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+  [[ "$docker_root" == "/var/lib/docker" ]] && ok "Docker root is /var/lib/docker" || soft "Docker root is ${docker_root:-unknown}"
+  runtimes="$(docker info --format '{{.Runtimes}}' 2>/dev/null || true)"
+  [[ "$runtimes" == *nvidia* ]] && ok "Docker NVIDIA runtime present" || bad "Docker NVIDIA runtime missing"
+fi
+
+if findmnt /var/lib/docker >/dev/null 2>&1; then
+  fs="$(findmnt -no FSTYPE /var/lib/docker 2>/dev/null || true)"
+  opts="$(findmnt -no OPTIONS /var/lib/docker 2>/dev/null || true)"
+  [[ "$fs" == "xfs" ]] && ok "/var/lib/docker is XFS" || soft "/var/lib/docker filesystem is ${fs:-unknown}"
+  [[ "$opts" == *prjquota* ]] && ok "/var/lib/docker has prjquota" || bad "/var/lib/docker missing prjquota"
+else
+  bad "/var/lib/docker is not a separate mount"
+fi
+
+echo
+if has mokutil; then
+  sb="$(mokutil --sb-state 2>/dev/null || true)"
+  [[ "$sb" == *disabled* || "$sb" == *not*enabled* ]] && ok "Secure Boot disabled" || soft "Secure Boot state: ${sb:-unknown}"
+else
+  soft "mokutil missing; Secure Boot state not checked"
+fi
+
+if has lspci; then
+  echo
+  echo "== GPU PCIe links =="
+  while IFS= read -r bus; do
+    [[ -n "$bus" ]] || continue
+    echo "--- $bus ---"
+    lspci -s "$bus" -vv 2>/dev/null | grep -E 'LnkCap:|LnkSta:' || true
+  done < <(lspci -D | awk '/VGA compatible controller|3D controller|Display controller/ && /NVIDIA/ {print $1}')
+fi
+
+echo
+if has speedtest; then
+  echo "== Network speedtest =="
+  timeout 90s speedtest 2>/dev/null || soft "speedtest failed or was cancelled"
+elif has speedtest-cli; then
+  echo "== Network speedtest =="
+  timeout 90s speedtest-cli --simple 2>/dev/null || soft "speedtest-cli failed or was cancelled"
+else
+  soft "No speedtest command installed"
+fi
+
+echo
+echo "Summary: ${pass} passed, ${warn} warnings, ${fail} failed"
+(( fail == 0 ))
+SCRIPT
+  sudo chmod 0755 "$vast_ready_check"
+  sudo bash -n "$vast_ready_check"
+
+  step "Installing vast_cleanup command"
+  sudo tee "$vast_cleanup" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "docker command not found" >&2
+  exit 1
+fi
+
+echo "Docker usage before cleanup:"
+docker system df || true
+
+echo
+echo "WARNING: vast_cleanup should only run when the machine is idle/unlisted"
+echo "and you are sure no customer data must be preserved."
+echo
+echo "This removes stopped containers, unused networks, dangling/unused images, and build cache."
+echo "It intentionally does NOT use --volumes."
+read -r -p "Type CLEAN IDLE MACHINE to continue: " answer
+case "$answer" in
+  "CLEAN IDLE MACHINE")
+    docker system prune -af
+    ;;
+  *)
+    echo "Cancelled."
+    exit 0
+    ;;
+esac
+
+echo
+echo "Docker usage after cleanup:"
+docker system df || true
+SCRIPT
+  sudo chmod 0755 "$vast_cleanup"
+  sudo bash -n "$vast_cleanup"
+
+  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup"
 }
 
 install_gpu_fan_control() {

@@ -404,6 +404,7 @@ if [[ "$INSTALL_EXTRAS_MODE" -eq 1 ]]; then
     install_cpu_burn
   fi
   install_full_burn_if_ready
+  install_host_polish_tools
 
   extras_done_lines=("Selected optional extras installed or repaired")
   if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
@@ -422,11 +423,12 @@ if [[ "$INSTALL_EXTRAS_MODE" -eq 1 ]]; then
     extras_done_lines+=("GPU burn: gpu_burn -tc -m 100% 60")
   fi
   if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
-    extras_done_lines+=("CPU burn: cpu_burn 60")
+    extras_done_lines+=("CPU/RAM burn: cpu_burn 60 and memtester 60")
   fi
   if command -v full_burn >/dev/null 2>&1; then
-    extras_done_lines+=("Full burn: full_burn 7200")
+    extras_done_lines+=("Full burn: full_burn 7200 logs to ~/burn-logs")
   fi
+  extras_done_lines+=("Readiness tools: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_cleanup")
 
   success_banner "OPTIONAL EXTRAS COMPLETE"
   install_report_box "What was installed" "${extras_done_lines[@]}"
@@ -497,6 +499,7 @@ if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
   install_cpu_burn
 fi
 install_full_burn_if_ready
+install_host_polish_tools
 
 verify_host_state
 mark_setup_complete
@@ -534,38 +537,94 @@ if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
   phase3_done_lines+=("gpu-burn stress-test tool installed with /usr/local/bin/gpu_burn wrapper")
 fi
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
-  phase3_done_lines+=("CPU burn stress-test tool installed with /usr/local/bin/cpu_burn wrapper")
+  phase3_done_lines+=("CPU/RAM burn stress-test tools installed with /usr/local/bin/cpu_burn and /usr/local/bin/memtester wrappers")
 fi
 if command -v full_burn >/dev/null 2>&1; then
-  phase3_done_lines+=("Full CPU+GPU burn command installed with /usr/local/bin/full_burn wrapper")
+  phase3_done_lines+=("Full CPU+GPU+RAM burn command installed with /usr/local/bin/full_burn wrapper and ~/burn-logs output")
 fi
+phase3_done_lines+=("Host polish commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_cleanup")
 
-hero_banner
-success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
-install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
 stress_test_lines=()
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("cpu_burn 60")
+  stress_test_lines+=("memtester 60")
 fi
 if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("gpu_burn -tc -m 100% 60")
 fi
 if command -v full_burn >/dev/null 2>&1; then
   stress_test_lines+=("full_burn 7200")
+stress_test_lines+=("Full burn tests the whole machine: RAM + CPU + GPU together")
 fi
+stress_test_lines+=("storage_layout")
+stress_test_lines+=("sudo vast_ready_check")
+stress_test_lines+=("sudo disk_health")
+stress_test_lines+=("sudo docker system df")
 if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
   stress_test_lines+=("rig-monitor")
 fi
 if [[ "$WITH_CPU_BURN" -eq 1 || "$WITH_GPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("Tip: 60 = seconds. Use 7200 for a 2-hour burn-in.")
 fi
+
+summary_file="${STATE_DIR}/final-summary.txt"
+summary_cmd="/usr/local/bin/vast_install_summary"
+summary_tmp="$(mktemp)"
+{
+  echo "VAST HOST - PHASE 3 COMPLETE - VAST SETUP FINISHED"
+  echo "Generated: $(date -Is)"
+  echo
+  echo "What was done - full install report"
+  for line in "${phase3_done_lines[@]}"; do
+    echo "✓ $line"
+  done
+  echo
+  echo "Quick stress-test commands"
+  for line in "${stress_test_lines[@]}"; do
+    echo "✓ $line"
+  done
+  if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+    echo
+    echo "Optional next steps - Vast CLI"
+    echo "vastai --help"
+    echo "vastai set api-key YOUR_API_KEY"
+    echo "vastai show user"
+    echo "vastai show machines"
+    echo "vastai self-test machine YOUR_MACHINE_ID"
+    echo "vastai self-test machine YOUR_MACHINE_ID --ignore-requirements"
+    echo "More CLI examples: https://docs.vast.ai/cli/hello-world"
+  fi
+} > "$summary_tmp"
+sudo install -d -m 0755 "$STATE_DIR"
+sudo install -m 0644 "$summary_tmp" "$summary_file"
+rm -f "$summary_tmp"
+sudo tee "$summary_cmd" >/dev/null <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+summary_file="/var/lib/vast-host-installer/final-summary.txt"
+if [[ ! -r "$summary_file" ]]; then
+  echo "No final Vast Host install summary found at $summary_file" >&2
+  echo "Finish Phase 3 first, then run vast_install_summary again." >&2
+  exit 1
+fi
+cat "$summary_file"
+EOF
+sudo chmod 0755 "$summary_cmd"
+sudo bash -n "$summary_cmd"
+
+hero_banner
+success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
+install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
 if [[ "${#stress_test_lines[@]}" -gt 0 ]]; then
   install_report_box "Quick stress-test commands" "${stress_test_lines[@]}"
 fi
+install_report_box "Show this screen again" "vast_install_summary"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."
   command_list_box \
+    "vastai --help" \
     "vastai set api-key YOUR_API_KEY" \
+    "vastai show user" \
     "vastai show machines" \
     "vastai self-test machine YOUR_MACHINE_ID" \
     "vastai self-test machine YOUR_MACHINE_ID --ignore-requirements"

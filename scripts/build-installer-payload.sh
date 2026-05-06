@@ -11,6 +11,7 @@ tar \
   --exclude='build' \
   --exclude='__pycache__' \
   --exclude='.git' \
+  --exclude='scripts/install-vast-host-tools.sh' \
   -C "$ROOT_DIR" \
   -czf "$PAYLOAD" \
   README.md docs install web bin autoinstall systemd scripts

@@ -84,8 +84,8 @@ run_first_boot_questionnaire() {
   if prompt_yes_no "Install gpu-burn stress-test tool?" "y"; then
     FIRST_BOOT_INSTALL_GPU_BURN=1
   fi
-  echo "Installs stress-ng and adds cpu_burn for a quick all-core CPU load test."
-  if prompt_yes_no "Install CPU burn stress-test tool?" "y"; then
+  echo "Installs stress-ng, memtester, Memtest86+ and cpu_burn for CPU/RAM burn-in tests. Readiness tools are installed automatically."
+  if prompt_yes_no "Install CPU/RAM burn stress-test tools?" "y"; then
     FIRST_BOOT_INSTALL_CPU_BURN=1
   fi
 }
@@ -117,8 +117,8 @@ run_optional_extras_questionnaire() {
   if prompt_yes_no "Install gpu-burn stress-test tool?" "n"; then
     FIRST_BOOT_INSTALL_GPU_BURN=1
   fi
-  echo "Installs stress-ng and adds cpu_burn for a quick all-core CPU load test."
-  if prompt_yes_no "Install CPU burn stress-test tool?" "n"; then
+  echo "Installs stress-ng, memtester, Memtest86+ and cpu_burn for CPU/RAM burn-in tests. Readiness tools are installed automatically."
+  if prompt_yes_no "Install CPU/RAM burn stress-test tools?" "n"; then
     FIRST_BOOT_INSTALL_CPU_BURN=1
   fi
 }

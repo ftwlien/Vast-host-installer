@@ -17,7 +17,11 @@ This release adds the polished optional-extras flow and post-install stress test
 - aggressive NVIDIA GPU fan control option with reboot-safe `nvidia-xorg.service` and `gpu-fan.service`
 - `gpu_burn -tc -m 100% 60` GPU stress-test command
 - `cpu_burn 60` CPU stress-test command using `stress-ng`
-- `full_burn 7200` combined CPU+GPU 2-hour burn-in command
+- `memtester 60` dedicated RAM test command using `memtester`
+- Memtest86+ package installed for boot-menu/offline memory testing
+- `full_burn 7200` combined CPU+GPU+RAM 2-hour burn-in command with `~/burn-logs` output
+- `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, and `sudo vast_cleanup` operator/helper commands
+- public repo helper `scripts/install-vast-host-tools.sh` for adding the Phase 3-style summary/tools to existing Ubuntu rigs without reinstalling
 - `--install-extras` mode for installing or repairing optional extras later without rerunning storage/Vast setup
 - cleaner `6/6 Optional extra choices` prompt with short explanations
 - final quick stress-test command box
@@ -28,8 +32,18 @@ This release adds the polished optional-extras flow and post-install stress test
 
 ```bash
 cpu_burn 60
+memtester 60
 gpu_burn -tc -m 100% 60
 full_burn 7200
+# full_burn tests the whole machine: RAM + CPU + GPU together
+vast_install_summary
+storage_layout
+sudo vast_ready_check
+sudo disk_health
+sudo docker system df
+vastai --help
+vastai show user
+vastai show machines
 rig-monitor
 ```
 

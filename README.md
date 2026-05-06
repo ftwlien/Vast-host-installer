@@ -236,23 +236,91 @@ Or with the installed `./gpu_burn` shortcut:
 ./gpu_burn -tc -m 100% 60
 ```
 
-#### CPU burn stress-test tool
+#### CPU/RAM burn and Memtest86+ stress-test tools
 
-Installs `stress-ng` and creates a simple global CPU load command:
+Installs `stress-ng`, `memtester` and `memtest86+`, then creates simple global CPU and RAM load commands:
 
 ```bash
 cpu_burn 60
+memtester 60
 ```
 
-That runs all CPU threads hard for 60 seconds and prints a short metrics summary.
+`cpu_burn` runs all CPU threads hard for 60 seconds. `memtester` runs a dedicated Linux-side RAM test for 60 seconds. Memtest86+ is installed for offline boot-menu memory testing when you want a deeper pre-OS RAM check.
 
-If both CPU and GPU burn tools are installed, the installer also creates:
+If CPU/RAM and GPU burn tools are installed, the installer also creates:
 
 ```bash
 full_burn 7200
 ```
 
-That runs CPU and GPU stress tests together for 2 hours.
+That tests the whole machine by running RAM, CPU and GPU stress together for 2 hours, and writes a timestamped log under:
+
+```text
+~/burn-logs/
+```
+
+#### Existing Ubuntu rig host-tools installer
+
+For rigs that are **already installed and running Ubuntu**, you do not need the ISO. Use the public repo helper installer to add the same Phase 3-style summary and validation tools:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
+```
+
+Then run:
+
+```bash
+vast_install_summary
+```
+
+Optional burn-tool mode for existing rigs:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash -s -- --with-burn-tools
+```
+
+This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
+
+Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
+
+#### Host readiness and diagnostic tools
+
+The installer saves the final Phase 3 report and also adds small operator commands for final checks:
+
+```bash
+vast_install_summary
+storage_layout
+sudo vast_ready_check
+```
+
+`vast_install_summary` reopens the saved Phase 3 complete report, including what was done, quick tests, and next commands.
+
+Useful Vast CLI sanity commands after setting an API key:
+
+```bash
+vastai --help
+vastai show user
+vastai show machines
+vastai self-test machine YOUR_MACHINE_ID
+```
+
+`storage_layout` shows a clean disk/partition/mount/usage overview, including Docker XFS/prjquota status.
+
+`sudo vast_ready_check` checks Docker, NVIDIA, Vast services, `/var/lib/docker` XFS/prjquota, Secure Boot state, GPU PCIe link info, and runs a network speed test when available.
+
+```bash
+storage_layout
+sudo disk_health
+sudo docker system df
+```
+
+Shows disk layout, filesystem usage, and NVMe/SMART health summaries.
+
+```bash
+sudo vast_cleanup
+```
+
+Interactive Docker cleanup helper for pruning unused containers/images/build cache. Only run when the machine is idle/unlisted and you are sure no customer data must be preserved.
 
 ---
 
