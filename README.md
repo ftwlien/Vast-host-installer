@@ -273,7 +273,7 @@ Then run:
 vast_install_summary
 ```
 
-This one installer also adds the local CPU/RAM burn commands (`cpu_burn` and `memtester`). If `gpu_burn` already exists on the rig, it also adds `full_burn`.
+This one installer also adds the local CPU/RAM burn commands (`cpu_burn` and `memtester`). If `gpu_burn` is missing, the summary shows the exact fix command: `sudo vast_install_gpu_burn`. If `gpu_burn` already exists, it also adds `full_burn`.
 
 This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
 
