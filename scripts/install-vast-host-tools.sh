@@ -473,7 +473,13 @@ else
   lines+=("full_burn command missing")
   lines+=("Fix: sudo vast_install_gpu_burn")
 fi
-lines+=("Helper commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo docker system df, sudo vast_cleanup, sudo vast_install_gpu_burn")
+lines+=("Helper commands installed")
+lines+=("storage_layout")
+lines+=("sudo vast_ready_check")
+lines+=("sudo disk_health")
+lines+=("sudo docker system df")
+lines+=("sudo vast_cleanup")
+lines+=("sudo vast_install_gpu_burn")
 
 quick=("vast_install_summary" "storage_layout" "sudo vast_ready_check" "sudo disk_health" "sudo docker system df")
 command -v gpu_burn >/dev/null 2>&1 || quick+=("sudo vast_install_gpu_burn")
