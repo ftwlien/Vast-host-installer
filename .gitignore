@@ -19,3 +19,9 @@ iso/overlay/scripts/
 .env
 .env.*
 .DS_Store
+
+# Local ISO/autoinstall generated secrets and scaffold output
+autoinstall/bootstrap-password.txt
+autoinstall/bootstrap-password.hash
+iso/nocloud/user-data
+iso/nocloud/meta-data

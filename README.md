@@ -16,21 +16,11 @@ Download the latest release here:
 
 Current recommended ISO:
 
-- **`vast-host-installer-jammy-flawless-king.iso`**
+- **`vast-host-installer-jammy-v1.2.0.iso`**
 - Ubuntu Server Jammy-based custom autoinstall ISO
 - Boots the USB and installer into RAM for a fast, clean install experience
 - Installer payload is embedded locally at `/opt/vast-host-installer`
-- SHA256:
-
-```text
-b919b259fd7842003cd20f14bd9a5ba3a27dc75675d416524756c602115788af  vast-host-installer-jammy-flawless-king.iso
-```
-
-Reserve/fallback build:
-
-```text
-0026cf3b2b4be13a8677d26bd24443822a1b2fc3df3e25e4628d3d395768f6c6  vast-host-installer-jammy-perfection-reserve.iso
-```
+- SHA256: see the `.sha256` file attached to the GitHub release.
 
 ---
 
@@ -57,6 +47,7 @@ It can:
 - optionally install Vast CLI
 - optionally install `rig-monitor`
 - optionally install Fleet Health Check prerequisites
+- optionally install aggressive Vast.ai GPU fan control, `gpu_burn`, `cpu_burn`, and `full_burn` stress testing
 - print a final full install report so you know what happened
 
 In plain English: **the ISO gets Ubuntu on the box, then the installer does the Vast host build for you.**
@@ -86,7 +77,7 @@ Go to:
 Download:
 
 ```text
-vast-host-installer-jammy-flawless-king.iso
+vast-host-installer-jammy-v1.2.0.iso
 ```
 
 Optional but recommended: verify the SHA256 checksum matches the value shown in the release notes.
@@ -103,7 +94,7 @@ Use one of these tools:
 Basic flow:
 
 1. Open balenaEtcher or Rufus.
-2. Select `vast-host-installer-jammy-flawless-king.iso`.
+2. Select `vast-host-installer-jammy-v1.2.0.iso`.
 3. Select your USB stick.
 4. Click flash/start.
 5. Wait until it finishes.
@@ -179,7 +170,7 @@ Paste the whole command exactly. The Vast install command is interactive and may
 
 Do **not** reuse an old/expired Vast install command. If in doubt, generate a fresh one.
 
-### 3/3 — Optional extras
+### 6/6 — Optional extra choices
 
 The installer asks if you want these extras:
 
@@ -210,6 +201,58 @@ The installer creates a launcher so the bootstrap/operator shell can run it clea
 Installs prerequisites for the Fleet Health Check tooling, including helper permissions needed for GPU/disk health checks.
 
 This is useful if you manage multiple rigs and want consistent fleet diagnostics later.
+
+#### Aggressive Vast.ai GPU fan control
+
+Installs a reboot-safe headless Xorg + fan-control service for NVIDIA rigs. The curve is tuned for Vast hosting stability:
+
+- under 50°C → NVIDIA auto mode, so idle fans can stop
+- 50–59°C → 50%
+- 60–69°C → 75%
+- 70–71°C → 90%
+- 72°C and above → 100%
+
+This keeps rented GPUs cooled aggressively under load without forcing idle rigs to sit at 50% fan forever.
+
+#### gpu-burn stress-test tool
+
+Builds and installs [`wilicc/gpu-burn`](https://github.com/wilicc/gpu-burn) after the NVIDIA/CUDA phase, so you can load-test GPUs right after setup.
+
+The installer creates:
+
+- `/usr/local/bin/gpu_burn` — works from anywhere as `gpu_burn`
+- `~/gpu_burn` — so from the operator home directory, `./gpu_burn` works too
+- bash shortcuts — so in a normal operator bash shell, `./gpu_burn` also launches gpu-burn from any directory
+
+Example 60-second full-memory test:
+
+```bash
+gpu_burn -tc -m 100% 60
+```
+
+Or with the installed `./gpu_burn` shortcut:
+
+```bash
+./gpu_burn -tc -m 100% 60
+```
+
+#### CPU burn stress-test tool
+
+Installs `stress-ng` and creates a simple global CPU load command:
+
+```bash
+cpu_burn 60
+```
+
+That runs all CPU threads hard for 60 seconds and prints a short metrics summary.
+
+If both CPU and GPU burn tools are installed, the installer also creates:
+
+```bash
+full_burn 7200
+```
+
+That runs CPU and GPU stress tests together for 2 hours.
 
 ---
 
@@ -279,7 +322,7 @@ Phase 3:
 - verifies Docker
 - verifies NVIDIA inside Docker
 - verifies Vast services
-- installs optional Vast CLI, rig-monitor, and Fleet Health Check prereqs
+- installs optional Vast CLI, rig-monitor, Fleet Health Check prereqs, GPU fan control, gpu-burn, and CPU burn
 - prints a final install report
 
 When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
@@ -298,6 +341,12 @@ Resume after a reboot:
 
 ```bash
 sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
+Install or repair optional extras later without rerunning the full installer:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --install-extras
 ```
 
 Run Phase 3 preflight:
@@ -424,6 +473,9 @@ Implemented:
 - Vast CLI optional install
 - rig-monitor optional install and launcher
 - Fleet Health Check prerequisites optional install
+- aggressive Vast.ai GPU fan control optional install
+- gpu-burn optional install for post-setup GPU stress testing
+- CPU burn optional install for post-setup CPU stress testing
 - final human-readable install report
 
 Still planned:

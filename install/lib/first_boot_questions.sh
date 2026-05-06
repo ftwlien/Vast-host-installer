@@ -4,6 +4,9 @@ set -euo pipefail
 FIRST_BOOT_INSTALL_VAST_CLI=0
 FIRST_BOOT_INSTALL_RIG_MONITOR=0
 FIRST_BOOT_INSTALL_FLEET_HEALTH=0
+FIRST_BOOT_INSTALL_GPU_FAN_CONTROL=0
+FIRST_BOOT_INSTALL_GPU_BURN=0
+FIRST_BOOT_INSTALL_CPU_BURN=0
 FIRST_BOOT_HOSTNAME=""
 FIRST_BOOT_VAST_INSTALL_COMMAND=""
 FIRST_BOOT_USERNAME=""
@@ -60,15 +63,63 @@ run_first_boot_questionnaire() {
   read -r -p "Vast install command: " FIRST_BOOT_VAST_INSTALL_COMMAND
   [[ -n "$FIRST_BOOT_VAST_INSTALL_COMMAND" ]] || die "Vast install command is required"
 
-  question "3/3 Optional extras"
+  question "6/6 Optional extra choices"
+  echo "Adds the local Vast CLI command for API checks and self-tests."
   if prompt_yes_no "Install Vast CLI locally?" "y"; then
     FIRST_BOOT_INSTALL_VAST_CLI=1
   fi
+  echo "Adds the clean terminal dashboard for GPU temps, fans, power, VRAM and host stats."
   if prompt_yes_no "Install rig-monitor for local GPU/host checks?" "y"; then
     FIRST_BOOT_INSTALL_RIG_MONITOR=1
   fi
+  echo "Adds helper dependencies/permissions for later fleet diagnostics."
   if prompt_yes_no "Install Fleet Health Check prerequisites?" "n"; then
     FIRST_BOOT_INSTALL_FLEET_HEALTH=1
+  fi
+  echo "Adds reboot-safe NVIDIA Xorg + fan services for aggressive Vast.ai cooling."
+  if prompt_yes_no "Install aggressive Vast.ai GPU fan control?" "y"; then
+    FIRST_BOOT_INSTALL_GPU_FAN_CONTROL=1
+  fi
+  echo "Builds gpu-burn so you can stress-test all GPUs after setup."
+  if prompt_yes_no "Install gpu-burn stress-test tool?" "y"; then
+    FIRST_BOOT_INSTALL_GPU_BURN=1
+  fi
+  echo "Installs stress-ng and adds cpu_burn for a quick all-core CPU load test."
+  if prompt_yes_no "Install CPU burn stress-test tool?" "y"; then
+    FIRST_BOOT_INSTALL_CPU_BURN=1
+  fi
+}
+
+run_optional_extras_questionnaire() {
+  clear_terminal
+  hero_banner
+  banner "Optional Extras Installer"
+  step "Choose only the extras you want to install or repair. No storage, user, hostname, NVIDIA driver, or Vast bootstrap changes will be made."
+
+  question "6/6 Optional extra choices"
+  echo "Adds the local Vast CLI command for API checks and self-tests."
+  if prompt_yes_no "Install Vast CLI locally?" "n"; then
+    FIRST_BOOT_INSTALL_VAST_CLI=1
+  fi
+  echo "Adds the clean terminal dashboard for GPU temps, fans, power, VRAM and host stats."
+  if prompt_yes_no "Install rig-monitor for local GPU/host checks?" "n"; then
+    FIRST_BOOT_INSTALL_RIG_MONITOR=1
+  fi
+  echo "Adds helper dependencies/permissions for later fleet diagnostics."
+  if prompt_yes_no "Install Fleet Health Check prerequisites?" "n"; then
+    FIRST_BOOT_INSTALL_FLEET_HEALTH=1
+  fi
+  echo "Adds reboot-safe NVIDIA Xorg + fan services for aggressive Vast.ai cooling."
+  if prompt_yes_no "Install aggressive Vast.ai GPU fan control?" "n"; then
+    FIRST_BOOT_INSTALL_GPU_FAN_CONTROL=1
+  fi
+  echo "Builds gpu-burn so you can stress-test all GPUs after setup."
+  if prompt_yes_no "Install gpu-burn stress-test tool?" "n"; then
+    FIRST_BOOT_INSTALL_GPU_BURN=1
+  fi
+  echo "Installs stress-ng and adds cpu_burn for a quick all-core CPU load test."
+  if prompt_yes_no "Install CPU burn stress-test tool?" "n"; then
+    FIRST_BOOT_INSTALL_CPU_BURN=1
   fi
 }
 
@@ -77,5 +128,8 @@ emit_first_boot_answers() {
   echo "FIRST_BOOT_INSTALL_VAST_CLI=$FIRST_BOOT_INSTALL_VAST_CLI"
   echo "FIRST_BOOT_INSTALL_RIG_MONITOR=$FIRST_BOOT_INSTALL_RIG_MONITOR"
   echo "FIRST_BOOT_INSTALL_FLEET_HEALTH=$FIRST_BOOT_INSTALL_FLEET_HEALTH"
+  echo "FIRST_BOOT_INSTALL_GPU_FAN_CONTROL=$FIRST_BOOT_INSTALL_GPU_FAN_CONTROL"
+  echo "FIRST_BOOT_INSTALL_GPU_BURN=$FIRST_BOOT_INSTALL_GPU_BURN"
+  echo "FIRST_BOOT_INSTALL_CPU_BURN=$FIRST_BOOT_INSTALL_CPU_BURN"
   echo "FIRST_BOOT_USERNAME=$FIRST_BOOT_USERNAME"
 }

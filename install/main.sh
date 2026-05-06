@@ -9,10 +9,14 @@ PROFILE="fresh-basic"
 WITH_VAST_CLI=0
 WITH_RIG_MONITOR=0
 WITH_FLEET_HEALTH=0
+WITH_GPU_FAN_CONTROL=0
+WITH_GPU_BURN=0
+WITH_CPU_BURN=0
 PLAN_ONLY=0
 PREFLIGHT_PHASE3=0
 APPLY_CHANGES=0
 FIRST_BOOT_MODE=0
+INSTALL_EXTRAS_MODE=0
 RESUME_MODE=0
 AUTO_RUN=0
 CURRENT_AUTO_RUN=0
@@ -52,6 +56,9 @@ Options:
   --with-vast-cli
   --with-rig-monitor
   --with-fleet-health
+  --with-gpu-fan-control
+  --with-gpu-burn
+  --with-cpu-burn
   --vast-api-key <key>
   --vast-install-command <cmd>
   --confirm-disk <device>
@@ -59,6 +66,7 @@ Options:
   --plan-only
   --preflight-phase3
   --first-run
+  --install-extras
   --resume
   --auto-run
   --no-auto-reboot
@@ -87,6 +95,18 @@ while [[ $# -gt 0 ]]; do
       WITH_FLEET_HEALTH=1
       shift
       ;;
+    --with-gpu-fan-control)
+      WITH_GPU_FAN_CONTROL=1
+      shift
+      ;;
+    --with-gpu-burn)
+      WITH_GPU_BURN=1
+      shift
+      ;;
+    --with-cpu-burn)
+      WITH_CPU_BURN=1
+      shift
+      ;;
     --vast-api-key)
       VAST_API_KEY="${2:-}"
       shift 2
@@ -113,6 +133,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --first-run)
       FIRST_BOOT_MODE=1
+      shift
+      ;;
+    --install-extras)
+      INSTALL_EXTRAS_MODE=1
+      APPLY_CHANGES=1
       shift
       ;;
     --resume)
@@ -162,6 +187,9 @@ save_resume_state() {
     printf 'WITH_VAST_CLI=%q\n' "$WITH_VAST_CLI"
     printf 'WITH_RIG_MONITOR=%q\n' "$WITH_RIG_MONITOR"
     printf 'WITH_FLEET_HEALTH=%q\n' "$WITH_FLEET_HEALTH"
+    printf 'WITH_GPU_FAN_CONTROL=%q\n' "$WITH_GPU_FAN_CONTROL"
+    printf 'WITH_GPU_BURN=%q\n' "$WITH_GPU_BURN"
+    printf 'WITH_CPU_BURN=%q\n' "$WITH_CPU_BURN"
     printf 'AUTO_RUN=%q\n' "$AUTO_RUN"
     printf 'NEXT_PHASE=%q\n' "$next_phase"
   } > "$STATE_FILE"
@@ -180,6 +208,9 @@ load_resume_state() {
   WITH_VAST_CLI="${WITH_VAST_CLI:-0}"
   WITH_RIG_MONITOR="${WITH_RIG_MONITOR:-0}"
   WITH_FLEET_HEALTH="${WITH_FLEET_HEALTH:-0}"
+  WITH_GPU_FAN_CONTROL="${WITH_GPU_FAN_CONTROL:-0}"
+  WITH_GPU_BURN="${WITH_GPU_BURN:-0}"
+  WITH_CPU_BURN="${WITH_CPU_BURN:-0}"
   AUTO_RUN="${AUTO_RUN:-0}"
   case "${NEXT_PHASE:-}" in
     after-reboot)
@@ -296,9 +327,13 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   WITH_VAST_CLI="$FIRST_BOOT_INSTALL_VAST_CLI"
   WITH_RIG_MONITOR="$FIRST_BOOT_INSTALL_RIG_MONITOR"
   WITH_FLEET_HEALTH="$FIRST_BOOT_INSTALL_FLEET_HEALTH"
+  WITH_GPU_FAN_CONTROL="$FIRST_BOOT_INSTALL_GPU_FAN_CONTROL"
+  WITH_GPU_BURN="$FIRST_BOOT_INSTALL_GPU_BURN"
+  WITH_CPU_BURN="$FIRST_BOOT_INSTALL_CPU_BURN"
 
   set_final_hostname "$FIRST_BOOT_HOSTNAME"
   ensure_operator_user "$FIRST_BOOT_USERNAME" "$FIRST_BOOT_PASSWORD"
+  lock_bootstrap_user_after_handoff "$FIRST_BOOT_USERNAME"
 
   print_detection_summary
   plan_storage_layout
@@ -332,6 +367,71 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
     "Base system prep finished" \
     "Resume state was saved for phase 2"
   continue_after_phase "Next step: reboot, then log in and run --resume to start NVIDIA setup."
+fi
+
+if [[ "$INSTALL_EXTRAS_MODE" -eq 1 ]]; then
+  run_optional_extras_questionnaire
+  TARGET_USER="$(installer_target_user)"
+  WITH_VAST_CLI="$FIRST_BOOT_INSTALL_VAST_CLI"
+  WITH_RIG_MONITOR="$FIRST_BOOT_INSTALL_RIG_MONITOR"
+  WITH_FLEET_HEALTH="$FIRST_BOOT_INSTALL_FLEET_HEALTH"
+  WITH_GPU_FAN_CONTROL="$FIRST_BOOT_INSTALL_GPU_FAN_CONTROL"
+  WITH_GPU_BURN="$FIRST_BOOT_INSTALL_GPU_BURN"
+  WITH_CPU_BURN="$FIRST_BOOT_INSTALL_CPU_BURN"
+
+  if [[ "$WITH_VAST_CLI$WITH_RIG_MONITOR$WITH_FLEET_HEALTH$WITH_GPU_FAN_CONTROL$WITH_GPU_BURN$WITH_CPU_BURN" == "000000" ]]; then
+    success "No optional extras selected"
+    exit 0
+  fi
+
+  banner "Installing Selected Optional Extras"
+  if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+    install_vast_cli
+  fi
+  if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
+    install_rig_monitor_placeholder
+  fi
+  if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
+    install_fleet_health_placeholder
+  fi
+  if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
+    install_gpu_fan_control
+  fi
+  if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+    install_gpu_burn
+  fi
+  if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
+    install_cpu_burn
+  fi
+  install_full_burn_if_ready
+
+  extras_done_lines=("Selected optional extras installed or repaired")
+  if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+    extras_done_lines+=("Vast CLI: vastai")
+  fi
+  if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
+    extras_done_lines+=("rig-monitor: rig-monitor")
+  fi
+  if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
+    extras_done_lines+=("Fleet Health Check prerequisites installed")
+  fi
+  if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
+    extras_done_lines+=("GPU fan control services installed/enabled")
+  fi
+  if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+    extras_done_lines+=("GPU burn: gpu_burn -tc -m 100% 60")
+  fi
+  if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
+    extras_done_lines+=("CPU burn: cpu_burn 60")
+  fi
+  if command -v full_burn >/dev/null 2>&1; then
+    extras_done_lines+=("Full burn: full_burn 7200")
+  fi
+
+  success_banner "OPTIONAL EXTRAS COMPLETE"
+  install_report_box "What was installed" "${extras_done_lines[@]}"
+  success "Optional extras finished"
+  exit 0
 fi
 
 if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
@@ -387,6 +487,16 @@ fi
 if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
   install_fleet_health_placeholder
 fi
+if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
+  install_gpu_fan_control
+fi
+if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+  install_gpu_burn
+fi
+if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
+  install_cpu_burn
+fi
+install_full_burn_if_ready
 
 verify_host_state
 mark_setup_complete
@@ -417,10 +527,41 @@ fi
 if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
   phase3_done_lines+=("Fleet Health Check prerequisites installed")
 fi
+if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
+  phase3_done_lines+=("Aggressive Vast.ai GPU fan control installed and enabled")
+fi
+if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+  phase3_done_lines+=("gpu-burn stress-test tool installed with /usr/local/bin/gpu_burn wrapper")
+fi
+if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
+  phase3_done_lines+=("CPU burn stress-test tool installed with /usr/local/bin/cpu_burn wrapper")
+fi
+if command -v full_burn >/dev/null 2>&1; then
+  phase3_done_lines+=("Full CPU+GPU burn command installed with /usr/local/bin/full_burn wrapper")
+fi
 
 hero_banner
 success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
+stress_test_lines=()
+if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
+  stress_test_lines+=("cpu_burn 60")
+fi
+if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+  stress_test_lines+=("gpu_burn -tc -m 100% 60")
+fi
+if command -v full_burn >/dev/null 2>&1; then
+  stress_test_lines+=("full_burn 7200")
+fi
+if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
+  stress_test_lines+=("rig-monitor")
+fi
+if [[ "$WITH_CPU_BURN" -eq 1 || "$WITH_GPU_BURN" -eq 1 ]]; then
+  stress_test_lines+=("Tip: 60 = seconds. Use 7200 for a 2-hour burn-in.")
+fi
+if [[ "${#stress_test_lines[@]}" -gt 0 ]]; then
+  install_report_box "Quick stress-test commands" "${stress_test_lines[@]}"
+fi
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."
   command_list_box \

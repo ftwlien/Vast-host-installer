@@ -9,14 +9,10 @@ Generated ISO files live in `iso/build/` and are intentionally ignored by git be
 ## Recommended build
 
 ```text
-vast-host-installer-jammy-flawless-king.iso
+vast-host-installer-jammy-v1.2.0.iso
 ```
 
-SHA256:
-
-```text
-b919b259fd7842003cd20f14bd9a5ba3a27dc75675d416524756c602115788af  vast-host-installer-jammy-flawless-king.iso
-```
+SHA256: see the `.sha256` file attached to the GitHub release.
 
 ## What makes this ISO special
 
@@ -29,7 +25,7 @@ It is a purpose-built Vast.ai host installer image that:
 - stages the installer payload into `/opt/vast-host-installer`
 - creates the bootstrap handoff so the operator knows exactly what to run next
 - carries the full three-phase Vast Host Installer workflow
-- supports optional Vast CLI, rig-monitor, and Fleet Health Check prerequisites
+- supports optional Vast CLI, rig-monitor, Fleet Health Check prerequisites, aggressive GPU fan control, gpu-burn, and CPU burn stress testing
 
 The ISO handles the boring infrastructure work so the operator can focus on the few things that must stay machine-specific: hostname, operator user, fresh Vast.ai install command, and optional extras.
 
@@ -49,7 +45,7 @@ sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
 7. Answer the three first-run sections:
    - machine identity
    - Vast.ai bootstrap command
-   - optional extras: Vast CLI, rig-monitor, Fleet Health Check prereqs
+   - optional extras: Vast CLI, rig-monitor, Fleet Health Check prereqs, aggressive GPU fan control, gpu-burn, CPU burn
 8. Reboot when the installer tells you.
 9. Resume after each reboot with:
 
@@ -58,6 +54,12 @@ sudo /opt/vast-host-installer/bin/vast-host-installer --resume
 ```
 
 10. When Phase 3 finishes, read the final install report and test/list the machine in Vast.ai.
+
+Optional extras can be installed or repaired later without rerunning the full setup:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --install-extras
+```
 
 ## First-run sections before Phase 1
 
@@ -75,11 +77,15 @@ Before Phase 1 starts, the ISO-staged installer asks the operator three blocks o
 
 This should be generated fresh from the Vast.ai console for every rig/install attempt.
 
-### 3/3 Optional extras
+### 6/6 Optional extra choices
 
 - **Vast CLI**: installs the local `vastai` command and wrapper
 - **rig-monitor**: installs local rig/GPU monitoring and a clean launcher
 - **Fleet Health Check prerequisites**: installs prerequisites and helper permissions for fleet diagnostics
+- **Aggressive GPU fan control**: installs reboot-safe NVIDIA Xorg/fan services tuned for Vast.ai hosting
+- **gpu-burn stress test**: builds `wilicc/gpu-burn` after NVIDIA/CUDA setup, installs `gpu_burn` globally, and adds a bash shortcut so `./gpu_burn` works from normal operator shells
+- **CPU burn stress test**: installs `stress-ng` and creates `cpu_burn 60` for a clean all-core CPU stress test from anywhere
+- **Full burn test**: when CPU and GPU burn are installed, creates `full_burn 7200` for a 2-hour combined CPU+GPU burn-in
 
 ## Phase summary
 
@@ -105,7 +111,7 @@ This should be generated fresh from the Vast.ai console for every rig/install at
 - runs the official interactive Vast.ai installer command
 - verifies Docker, NVIDIA runtime, and Vast services
 - repairs/restarts `vast_metrics` when needed
-- installs optional CLI/rig-monitor/fleet-health extras
+- installs optional CLI/rig-monitor/fleet-health/fan-control extras
 - prints a full final install report
 
 ## Build helpers
