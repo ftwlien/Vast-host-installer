@@ -15,8 +15,8 @@ Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - vast_cleanup
 - cpu_burn
 - memtester wrapper
-- vast_install_gpu_burn for installing gpu_burn when missing
-- full_burn when gpu_burn is installed
+- gpu_burn
+- full_burn 7200 whole-machine RAM + CPU + GPU burn test
 EOF
       exit 0
       ;;
@@ -39,7 +39,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil
   apt-get install -y speedtest-cli || true
-  apt-get install -y stress-ng memtester memtest86+
+  apt-get install -y stress-ng memtester memtest86+ git build-essential nvidia-cuda-toolkit
 fi
 
 cat >/usr/local/bin/storage_layout <<'SCRIPT'
@@ -285,40 +285,6 @@ exec timeout --foreground "${seconds}s" /usr/bin/memtester "${memory_mb}M" 1
 SCRIPT
 chmod 0755 /usr/local/bin/memtester
 
-if command -v gpu_burn >/dev/null 2>&1; then
-  cat >/usr/local/bin/full_burn <<'SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
-seconds="${1:-7200}"
-case "$seconds" in ''|*[!0-9]*) echo "Usage: full_burn [seconds]" >&2; echo "Example: full_burn 7200" >&2; exit 2;; esac
-log_dir="${FULL_BURN_LOG_DIR:-$HOME/burn-logs}"
-mkdir -p "$log_dir"
-log_file="$log_dir/full_burn-$(date +%Y%m%d-%H%M%S).log"
-exec > >(tee -a "$log_file") 2>&1
-echo "full_burn log: $log_file"
-echo "Starting CPU + GPU + RAM burn for ${seconds}s"
-cpu_burn "$seconds" & cpu_pid=$!
-gpu_burn -tc -m 100% "$seconds" & gpu_pid=$!
-ram_pressure_pid=""
-if command -v stress-ng >/dev/null 2>&1; then
-  stress-ng --vm 0 --vm-bytes 50% --verify --metrics-brief --timeout "${seconds}s" & ram_pressure_pid=$!
-fi
-cleanup() { kill "$cpu_pid" "$gpu_pid" ${ram_pressure_pid:+"$ram_pressure_pid"} >/dev/null 2>&1 || true; }
-trap 'cleanup; exit 130' INT TERM
-cpu_status=0; gpu_status=0; ram_status=0
-wait "$cpu_pid" || cpu_status=$?
-wait "$gpu_pid" || gpu_status=$?
-[[ -n "$ram_pressure_pid" ]] && wait "$ram_pressure_pid" || ram_status=$?
-if [[ "$cpu_status" -ne 0 || "$gpu_status" -ne 0 || "$ram_status" -ne 0 ]]; then
-  echo "full_burn finished with errors: cpu=${cpu_status}, gpu=${gpu_status}, ram=${ram_status}" >&2
-  exit 1
-fi
-echo "full_burn completed successfully"
-echo "Log saved to: $log_file"
-SCRIPT
-  chmod 0755 /usr/local/bin/full_burn
-fi
-
 cat >/usr/local/bin/vast_install_gpu_burn <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -402,11 +368,17 @@ echo "Run vast_install_summary again to refresh the report."
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_gpu_burn
 
+# Install gpu_burn/full_burn by default so this one installer gives the full toolkit.
+if ! command -v gpu_burn >/dev/null 2>&1 || [[ ! -x /usr/local/bin/full_burn ]]; then
+  /usr/local/bin/vast_install_gpu_burn
+fi
+
 cat >/usr/local/bin/vast_install_summary <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 
 if [[ -t 1 ]]; then
+  printf '\033[H\033[2J\033[3J'
   C_RESET='\033[0m'; C_BOLD='\033[1m'; C_GREEN='\033[1;32m'; C_SKY='\033[1;38;5;45m'; C_GRAY='\033[1;38;5;244m'
 else
   C_RESET=''; C_BOLD=''; C_GREEN=''; C_SKY=''; C_GRAY=''
@@ -481,7 +453,7 @@ if command -v gpu_burn >/dev/null 2>&1; then
   lines+=("gpu_burn command installed")
 else
   lines+=("gpu_burn command missing")
-  lines+=("Install: sudo vast_install_gpu_burn")
+  lines+=("Fix: sudo vast_install_gpu_burn")
 fi
 if command -v cpu_burn >/dev/null 2>&1; then
   lines+=("cpu_burn command installed")
@@ -499,7 +471,7 @@ if command -v full_burn >/dev/null 2>&1; then
   lines+=("full_burn command installed")
 else
   lines+=("full_burn command missing")
-  lines+=("Install: sudo vast_install_gpu_burn")
+  lines+=("Fix: sudo vast_install_gpu_burn")
 fi
 lines+=("Helper commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo docker system df, sudo vast_cleanup, sudo vast_install_gpu_burn")
 
@@ -545,7 +517,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_install_gpu_burn cpu_burn memtester full_burn_if_gpu_burn_exists
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_install_gpu_burn cpu_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"
