@@ -9,6 +9,7 @@ iso/build/**
 iso/overlay/*.tgz
 iso/overlay/*.tar
 iso/overlay/*.tar.gz
+iso/overlay/scripts/
 
 *.iso
 *.img

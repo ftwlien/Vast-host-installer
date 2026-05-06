@@ -42,9 +42,10 @@ prompt_password_twice() {
 }
 
 run_first_boot_questionnaire() {
+  clear_terminal
   hero_banner
   banner "First Run Setup"
-  step "Answer once. The installer will handle the reboots and resume itself."
+  step "Answer once. After each reboot, log in and run the shown command."
 
   question "1/3 Machine identity"
   read -r -p "Final hostname for this rig: " FIRST_BOOT_HOSTNAME

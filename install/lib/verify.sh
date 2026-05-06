@@ -13,7 +13,13 @@ verify_host_state() {
   fi
 
   echo "CHECK=docker"
-  if systemctl is-active docker >/dev/null 2>&1; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "RESULT=docker:missing"
+    failed=1
+  elif ! systemctl cat docker >/dev/null 2>&1; then
+    echo "RESULT=docker:service-missing"
+    failed=1
+  elif systemctl is-active docker >/dev/null 2>&1; then
     echo "RESULT=docker:active"
   else
     echo "RESULT=docker:inactive"
@@ -29,7 +35,10 @@ verify_host_state() {
   fi
 
   echo "CHECK=vast-service"
-  if systemctl is-active vastai >/dev/null 2>&1; then
+  if ! systemctl cat vastai >/dev/null 2>&1; then
+    echo "RESULT=vastai:service-missing"
+    failed=1
+  elif systemctl is-active vastai >/dev/null 2>&1; then
     echo "RESULT=vastai:active"
   else
     echo "RESULT=vastai:inactive"
@@ -56,16 +65,134 @@ verify_host_state() {
   fi
 }
 
+_mount_fstype() {
+  findmnt -n -o FSTYPE "$1" 2>/dev/null || true
+}
+
+_mount_source() {
+  findmnt -n -o SOURCE "$1" 2>/dev/null || true
+}
+
+_source_parent_disk() {
+  local source="$1" parent
+  source="$(readlink -f "$source" 2>/dev/null || printf '%s' "$source")"
+  parent="$(lsblk -no PKNAME "$source" 2>/dev/null | head -n1 || true)"
+  if [[ -n "$parent" ]]; then
+    printf '/dev/%s\n' "$parent"
+  fi
+}
+
+_disk_size_bytes() {
+  lsblk -b -dn -o SIZE "$1" 2>/dev/null | head -n1 | tr -dc '0-9'
+}
+
+_fstab_has_mount() {
+  local target="$1"
+  awk -v target="$target" '$1 !~ /^#/ && $2 == target {found=1} END {exit found ? 0 : 1}' /etc/fstab 2>/dev/null
+}
+
+preflight_storage_layout() {
+  local failed=0 root_source root_disk root_fstype efi_source efi_fstype docker_source docker_fstype docker_disk root_disk_size
+  local split_min_bytes=$((140 * 1024 * 1024 * 1024))
+
+  echo "CHECK=storage-root"
+  root_source="$(_mount_source /)"
+  root_disk="$(get_root_disk || true)"
+  root_fstype="$(_mount_fstype /)"
+  if [[ -n "$root_source" && -n "$root_disk" && -n "$root_fstype" ]]; then
+    echo "RESULT=root:${root_source}:${root_fstype}:disk=${root_disk}"
+  else
+    echo "RESULT=root:missing"
+    failed=1
+  fi
+
+  echo "CHECK=storage-efi"
+  efi_source="$(_mount_source /boot/efi)"
+  efi_fstype="$(_mount_fstype /boot/efi)"
+  if [[ -n "$efi_source" && "$efi_fstype" =~ ^(vfat|fat|fat32)$ ]]; then
+    echo "RESULT=efi:${efi_source}:${efi_fstype}"
+  else
+    echo "RESULT=efi:missing-or-wrong-fstype:${efi_fstype:-none}"
+    failed=1
+  fi
+
+  echo "CHECK=storage-fstab"
+  if _fstab_has_mount / && _fstab_has_mount /boot/efi; then
+    echo "RESULT=fstab:root-and-efi-present"
+  else
+    echo "RESULT=fstab:missing-root-or-efi"
+    failed=1
+  fi
+
+  echo "CHECK=storage-docker"
+  docker_source="$(_mount_source /var/lib/docker)"
+  docker_fstype="$(_mount_fstype /var/lib/docker)"
+  docker_disk=""
+  if [[ -n "$docker_source" ]]; then
+    docker_disk="$(_source_parent_disk "$docker_source")"
+  fi
+
+  case "${PROFILE:-fresh-basic}" in
+    fresh-two-disk)
+      if [[ -n "$docker_source" && "$docker_source" != "$root_source" && "$docker_disk" != "$root_disk" && "$docker_fstype" == "xfs" ]] && _fstab_has_mount /var/lib/docker; then
+        echo "RESULT=docker:two-disk-ok:${docker_source}:${docker_fstype}:disk=${docker_disk}"
+      elif [[ -n "$docker_source" && "$docker_source" != "$root_source" && "$docker_disk" == "$root_disk" && "$docker_fstype" == "xfs" ]] && _fstab_has_mount /var/lib/docker; then
+        echo "RESULT=docker:two-disk-profile-single-disk-split-ok:${docker_source}:${docker_fstype}:disk=${docker_disk}"
+        echo "WARN=profile says fresh-two-disk, but Docker is mounted on a separate XFS partition on the root disk. This is usable, so Phase 3 is allowed to continue."
+      else
+        echo "RESULT=docker:two-disk-bad:source=${docker_source:-missing}:fstype=${docker_fstype:-missing}:disk=${docker_disk:-unknown}:root_disk=${root_disk:-unknown}"
+        failed=1
+      fi
+      ;;
+    fresh-single-disk)
+      root_disk_size="$(_disk_size_bytes "$root_disk")"
+      if [[ -n "$docker_source" ]]; then
+        if [[ "$docker_source" != "$root_source" && "$docker_disk" == "$root_disk" && "$docker_fstype" == "xfs" ]] && _fstab_has_mount /var/lib/docker; then
+          echo "RESULT=docker:single-disk-split-ok:${docker_source}:${docker_fstype}:disk=${docker_disk}"
+        else
+          echo "RESULT=docker:single-disk-split-bad:source=${docker_source:-missing}:fstype=${docker_fstype:-missing}:disk=${docker_disk:-unknown}:root_disk=${root_disk:-unknown}"
+          failed=1
+        fi
+      elif [[ -n "$root_disk_size" && "$root_disk_size" -lt "$split_min_bytes" ]]; then
+        echo "RESULT=docker:single-disk-root-only-ok:disk-size=${root_disk_size}"
+      else
+        echo "RESULT=docker:single-disk-missing-split:disk-size=${root_disk_size:-unknown}"
+        failed=1
+      fi
+      ;;
+    *)
+      if [[ -n "$docker_source" ]]; then
+        echo "RESULT=docker:present:${docker_source}:${docker_fstype:-unknown}"
+      else
+        echo "RESULT=docker:not-mounted-for-profile:${PROFILE:-unknown}"
+        echo "WARN=docker mount not enforced for this profile"
+      fi
+      ;;
+  esac
+
+  return "$failed"
+}
+
 preflight_phase3() {
-  local failed=0 next_phase=""
+  local failed=0 next_phase="" nvidia_ready=0
   banner "Phase 3 Preflight Check"
+
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    nvidia_ready=1
+  fi
 
   echo "CHECK=resume-state"
   if [[ -f /var/lib/vast-host-installer/resume.env ]]; then
     # shellcheck disable=SC1091
-    next_phase="$(grep -E '^NEXT_PHASE=' /var/lib/vast-host-installer/resume.env 2>/dev/null | cut -d= -f2- | sed "s/^'//;s/'$//")"
+    source /var/lib/vast-host-installer/resume.env
+    next_phase="${NEXT_PHASE:-}"
     if [[ "$next_phase" == "after-nvidia-reboot" ]]; then
-      echo "RESULT=resume-state:phase3-ready"
+      echo "RESULT=resume-state:phase3-ready:profile=${PROFILE:-unknown}"
+    elif [[ "$next_phase" == "after-reboot" && "$nvidia_ready" -eq 1 ]]; then
+      echo "RESULT=resume-state:phase2-state-but-nvidia-ready:profile=${PROFILE:-unknown}"
+      echo "WARN=resume state still pointed at Phase 2, but NVIDIA is already working; advancing to Phase 3 state"
+      save_resume_state after-nvidia-reboot
+      NEXT_PHASE=after-nvidia-reboot
     else
       echo "RESULT=resume-state:unexpected:${next_phase:-missing-next-phase}"
       failed=1
@@ -76,7 +203,7 @@ preflight_phase3() {
   fi
 
   echo "CHECK=nvidia-smi"
-  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+  if [[ "$nvidia_ready" -eq 1 ]]; then
     nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n1 | sed 's/^/RESULT=driver:/'
   else
     echo "RESULT=nvidia-smi:failed"
@@ -110,6 +237,8 @@ preflight_phase3() {
     echo "RESULT=console:fail"
     failed=1
   fi
+
+  preflight_storage_layout || failed=1
 
   if [[ "$failed" -eq 0 ]]; then
     success_banner "READY FOR PHASE 3"

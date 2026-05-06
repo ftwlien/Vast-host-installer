@@ -1,132 +1,324 @@
 # Vast Host Installer
 
-Opinionated installer framework for building and rebuilding Vast hosts.
+**A fast, no-bullshit Ubuntu Server ISO for building Vast.ai GPU hosts.**
 
-This project is being built in layers:
+This project turns a bare rig into a clean Vast-ready host with a guided, three-phase installer. Flash the ISO, boot the machine, answer a few questions, reboot when told, and the installer handles the annoying parts: storage layout, system prep, NVIDIA driver setup, Vast bootstrap, Docker/NVIDIA verification, rig-monitor, and optional Fleet Health Check prep.
 
-1. **Install engine first**
-   - disk detection
-   - profile selection
-   - storage layout logic
-   - NVIDIA / Docker / Vast bootstrap
-   - verification
-2. **Web generator second**
-   - choose profile/options
-   - output exact commands / generated script
-3. **Ubuntu autoinstall / ISO later**
-   - once the install engine is trustworthy
+The goal is simple: **make a fresh Vast host feel boringly reliable, even for people who have never installed a Linux GPU rig before.**
 
-## Why this order
+---
 
-A custom ISO is just a delivery wrapper.
-The real hard part is the install logic:
-- how disks are selected
-- where Docker/Vast data goes
-- how reinstallation is handled
-- how verification is done safely
+## Latest ISO
 
-So v1 is **not** an ISO.
-V1 is a real install engine that can later be embedded into an autoinstall or ISO flow.
+Download the latest release here:
 
-## Initial target
+<https://github.com/ftwlien/Vast-host-installer/releases/latest>
 
-Build a trusted post-Ubuntu installer that can:
-- detect one-disk vs two-disk rigs
-- use a separate Docker/Vast partition on single-disk autoinstall targets when the disk is large enough
-- use the biggest non-root disk for /var/lib/docker on two-disk rigs
-- install NVIDIA
-- install Vast
-- install Docker manually only if Vast setup explicitly needs it
-- optionally install Vast CLI, rig-monitor (including GPU temp helper setup), and Fleet Health Check extras
-- verify the final state
+Current recommended ISO:
 
-## Quick usage
+- **`vast-host-installer-jammy-flawless-king.iso`**
+- Ubuntu Server Jammy-based custom autoinstall ISO
+- Boots the USB and installer into RAM for a fast, clean install experience
+- Installer payload is embedded locally at `/opt/vast-host-installer`
+- SHA256:
 
-### Portable post-install bootstrap on any machine
-
-After installing Ubuntu from the ISO and logging in as `vastbootstrap`, run:
-
-```bash
-sudo apt update && sudo apt install -y git && git clone https://github.com/ftwlien/Vast-host-installer.git && cd Vast-host-installer && bash install/main.sh --first-run
+```text
+b919b259fd7842003cd20f14bd9a5ba3a27dc75675d416524756c602115788af  vast-host-installer-jammy-flawless-king.iso
 ```
 
-This is the recommended path for fresh machines that do not have access to this bot's workspace or local network.
+Reserve/fallback build:
 
-### Read-only detect
-
-```bash
-bash install/main.sh --detect-only
+```text
+0026cf3b2b4be13a8677d26bd24443822a1b2fc3df3e25e4628d3d395768f6c6  vast-host-installer-jammy-perfection-reserve.iso
 ```
 
-This now also shows the autoinstall-target disk policy view.
+---
 
-### Optional local install into /opt
+## What this ISO does
 
-```bash
-bash scripts/install-into-opt.sh
+The ISO installs Ubuntu Server and stages the Vast Host Installer directly onto the machine. After Ubuntu is installed, the guided setup finishes the rig in phases.
+
+It can:
+
+- install Ubuntu Server from a USB stick
+- use RAM boot/install flags for a smoother install
+- create the bootstrap login user
+- stage the installer in `/opt/vast-host-installer`
+- detect single-disk vs multi-disk rigs
+- explain the storage plan before destructive storage changes
+- prepare `/var/lib/docker` correctly for Vast workloads
+- run apt update/upgrade/dist-upgrade cleanup
+- disable/mask unattended apt jobs that interfere with installs
+- install the recommended NVIDIA open driver flow
+- configure NVIDIA persistence/Coolbits basics
+- run the official interactive Vast.ai host install command
+- verify NVIDIA, Docker, Docker NVIDIA runtime, and Vast services
+- repair the known `vast_metrics` executable-bit issue when present
+- optionally install Vast CLI
+- optionally install `rig-monitor`
+- optionally install Fleet Health Check prerequisites
+- print a final full install report so you know what happened
+
+In plain English: **the ISO gets Ubuntu on the box, then the installer does the Vast host build for you.**
+
+---
+
+## Super easy noob guide
+
+### What you need
+
+- A GPU rig/server you want to turn into a Vast.ai host
+- A USB stick, usually 8GB or bigger
+- The latest ISO from the GitHub release page
+- A fresh Vast.ai host install command from your Vast.ai console
+- Keyboard/monitor or SSH access after Ubuntu installs
+
+> Important: generate a **fresh** Vast.ai host install command for each machine/install attempt. Old/reused commands can fail with `401 Unauthorized`.
+
+---
+
+### Step 1 — Download the ISO
+
+Go to:
+
+<https://github.com/ftwlien/Vast-host-installer/releases/latest>
+
+Download:
+
+```text
+vast-host-installer-jammy-flawless-king.iso
 ```
 
-Autoinstall/bootstrap scaffolding now exists in:
-- `autoinstall/user-data.example.yaml`
-- `autoinstall/README.md`
-- `systemd/vast-host-installer-first-run-notice.service`
-- `scripts/generate-autoinstall-storage.py`
-- `scripts/render-autoinstall-user-data.py`
-- `scripts/build-installer-payload.sh`
-- `scripts/prepare-iso-scaffold.sh`
-- `scripts/build-custom-iso.sh`
-- `scripts/patch-iso-autoinstall-boot.sh`
-- `iso/README.md`
-- `docs/ISO-PLAN.md`
-- `docs/ISO-BUILD-PIPELINE.md`
+Optional but recommended: verify the SHA256 checksum matches the value shown in the release notes.
 
-## Current ISO
+---
 
-Latest GitHub release download:
+### Step 2 — Flash the ISO to a USB stick
 
-- <https://github.com/ftwlien/Vast-host-installer/releases/latest>
+Use one of these tools:
 
-The ISO boots Ubuntu Server autoinstall and embeds the installer payload under:
+- **balenaEtcher**: easiest for most people
+- **Rufus**: great on Windows
 
-- `/opt/vast-host-installer`
+Basic flow:
 
-Local bot1 build path:
+1. Open balenaEtcher or Rufus.
+2. Select `vast-host-installer-jammy-flawless-king.iso`.
+3. Select your USB stick.
+4. Click flash/start.
+5. Wait until it finishes.
+6. Safely eject the USB stick.
 
-- `/home/bot1/.openclaw/workspace/vast-host-installer/iso/build/vast-host-installer-v1.0.9.iso`
+This erases the USB stick. Do not pick the wrong drive.
 
-After Ubuntu finishes and you log in, start setup with:
+---
+
+### Step 3 — Prepare the target rig
+
+Before booting the installer, make life easy:
+
+1. Back up anything important from the rig.
+2. Remove disks you do **not** want touched if you are unsure.
+3. In the BIOS/UEFI, disable Secure Boot if NVIDIA driver loading gives trouble.
+4. Make sure the machine is connected to the internet.
+5. If you want the cleanest install, wipe/format the target disks before starting Ubuntu setup.
+
+The installer has disk detection and confirmation prompts, but do not gamble with important data. If a disk matters, disconnect it first.
+
+---
+
+### Step 4 — Boot from the USB stick
+
+1. Plug the USB stick into the rig.
+2. Power on the rig.
+3. Open the boot menu. Common keys: `F8`, `F11`, `F12`, `DEL`, or `ESC`.
+4. Pick the USB stick.
+5. Let Ubuntu Server autoinstall run.
+
+The ISO is designed so Ubuntu installs quickly and cleanly. On a decent rig, this should feel much smoother than a manual Ubuntu install.
+
+When Ubuntu finishes, remove the USB stick if prompted and reboot into the installed system.
+
+---
+
+### Step 5 — Log in after Ubuntu installs
+
+Log in as the bootstrap user shown by the installer/login notice.
+
+Then start the guided setup:
 
 ```bash
 sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
 ```
 
-Watch automatic phase resume after reboots with:
+The login screen also reminds you of this command.
+
+---
+
+## The 3 questions before Phase 1
+
+Before Phase 1 starts, the installer asks a short first-run questionnaire. This is where you provide the machine-specific stuff that should **not** be baked into a public ISO.
+
+### 1/3 — Machine identity
+
+The installer asks for:
+
+- final hostname for the rig
+- final operator username
+- password for that operator user
+
+This lets every rig get its own clean identity instead of cloning the same hostname/user forever.
+
+### 2/3 — Vast bootstrap
+
+The installer asks for:
+
+- the full Vast.ai host install command from your Vast.ai console
+
+Paste the whole command exactly. The Vast install command is interactive and may ask for port settings. Use a valid port range such as something inside `1024-65535`.
+
+Do **not** reuse an old/expired Vast install command. If in doubt, generate a fresh one.
+
+### 3/3 — Optional extras
+
+The installer asks if you want these extras:
+
+#### Vast CLI
+
+Installs the `vastai` command locally so you can later run commands like:
 
 ```bash
-sudo journalctl -fu vast-host-installer-auto-resume.service
+vastai set api-key YOUR_API_KEY
+vastai show machines
+vastai self-test machine YOUR_MACHINE_ID
 ```
 
-After Phase 2 installs the NVIDIA driver and reboots, Phase 3 intentionally waits for a real SSH/console login because the Vast installer is interactive and asks for port settings. Log in and run:
+#### rig-monitor
+
+Installs Andy’s `rig-monitor` tool for quick local rig checks.
+
+After install, you should be able to run:
+
+```bash
+rig-monitor
+```
+
+The installer creates a launcher so the bootstrap/operator shell can run it cleanly without manually jumping into the `vast` user.
+
+#### Fleet Health Check prerequisites
+
+Installs prerequisites for the Fleet Health Check tooling, including helper permissions needed for GPU/disk health checks.
+
+This is useful if you manage multiple rigs and want consistent fleet diagnostics later.
+
+---
+
+## Installer phases
+
+### Phase 1 — Storage and system prep
+
+Runs after `--first-run`.
+
+Phase 1:
+
+- sets the final hostname
+- creates the operator user
+- detects the disk layout
+- explains the storage plan
+- prepares Docker/Vast storage
+- runs base system update/upgrade prep
+- disables apt background jobs that can block installs
+- saves resume state
+- tells you to reboot
+
+After reboot, log in and run:
 
 ```bash
 sudo /opt/vast-host-installer/bin/vast-host-installer --resume
 ```
 
-Optional readiness check before manual Phase 3:
+---
+
+### Phase 2 — NVIDIA setup
+
+Runs after the first reboot/resume.
+
+Phase 2:
+
+- installs/refreshed the recommended NVIDIA open driver
+- prepares NVIDIA runtime basics
+- enables persistence mode setup
+- checks whether NVIDIA is working
+- saves resume state for the final Vast phase
+- tells you to reboot again
+
+After reboot, log in again and run:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
+Optional preflight check before Phase 3:
 
 ```bash
 sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3
 ```
 
-This mode now:
-- asks for final hostname
-- asks for final operator username + password
-- asks for the full Vast install command from Vast.ai
-- lets the Vast installer itself handle the host port range prompt
-- can optionally install the Vast CLI locally before the other extras
-- can optionally install Fleet Health Check prerequisites from the public repo
+---
 
-If you choose the optional Vast CLI install, the CLI is installed on the host for later use. After the full host install is finished, you can set your API key and verify it with:
+### Phase 3 — Vast install, extras, and verification
+
+Runs after the NVIDIA reboot.
+
+Phase 3:
+
+- checks that the machine is ready
+- runs the official Vast.ai host installer command interactively
+- lets Vast handle its own Docker/NVIDIA package flow
+- fixes/restarts `vast_metrics` if the Vast metrics launcher is not executable
+- verifies Docker
+- verifies NVIDIA inside Docker
+- verifies Vast services
+- installs optional Vast CLI, rig-monitor, and Fleet Health Check prereqs
+- prints a final install report
+
+When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
+
+---
+
+## Common commands
+
+Start first-run setup:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
+```
+
+Resume after a reboot:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
+Run Phase 3 preflight:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3
+```
+
+Watch auto-resume service logs if needed:
+
+```bash
+sudo journalctl -fu vast-host-installer-auto-resume.service
+```
+
+Run rig monitor after setup:
+
+```bash
+rig-monitor
+```
+
+Test Vast CLI after setup:
 
 ```bash
 vastai set api-key YOUR_API_KEY
@@ -135,19 +327,56 @@ vastai self-test machine YOUR_MACHINE_ID
 vastai self-test machine YOUR_MACHINE_ID --ignore-requirements
 ```
 
-More CLI examples:
+---
 
-- <https://docs.vast.ai/cli/hello-world>
+## Disk/layout notes
 
-### Reset installer-added tools for another test run
+The installer supports these fresh-install layouts:
 
-If you want to rerun the flow from a mostly clean slate without reinstalling Ubuntu, use:
+- **single-disk rigs**: root plus Docker/Vast storage split when the disk is large enough
+- **two-disk/multi-disk rigs**: root stays on the OS disk; the largest suitable non-root disk can be used for `/var/lib/docker`
+- **valid Docker XFS split layouts**: accepted even when the Docker partition is on the same physical disk as root
+
+The installer explains the planned storage layout before applying destructive storage changes. Still, the safest beginner rule is simple:
+
+> If you do not want a disk touched, unplug it before installing.
+
+---
+
+## Developer/local usage
+
+Read-only detection:
+
+```bash
+bash install/main.sh --detect-only
+```
+
+Plan preview:
+
+```bash
+bash install/main.sh --plan-only
+```
+
+Portable post-install bootstrap on any Ubuntu machine:
+
+```bash
+sudo apt update && sudo apt install -y git && git clone https://github.com/ftwlien/Vast-host-installer.git && cd Vast-host-installer && bash install/main.sh --first-run
+```
+
+Optional local install into `/opt`:
+
+```bash
+bash scripts/install-into-opt.sh
+```
+
+Reset installer-added tools for another test run:
 
 ```bash
 bash scripts/reset-host-installer-state.sh --yes
 ```
 
 This removes installer-added userland extras and helper repos such as:
+
 - Vast CLI user install
 - `~/rig-monitor`
 - `~/Fleet-Health-Check-public`
@@ -156,75 +385,50 @@ This removes installer-added userland extras and helper repos such as:
 - local installer resume state
 
 It does **not** fully undo:
+
 - NVIDIA driver installation
 - Docker installation
 - system packages installed by earlier phases
 - live Vast host configuration already applied by Vast's own installer
-- detects whether the machine is single-disk or two-disk
-- explains the storage plan in plain English and asks for confirmation before destructive disk changes
-- phase 1: applies storage prep + full system updates
-- then tells you to reboot
-- phase 2 after reboot: installs/configures NVIDIA open drivers
-- then tells you to reboot again
-- phase 3 after second reboot: waits for manual SSH/console resume, runs the interactive Vast install command, verifies Docker/NVIDIA runtime/Vast service, and finishes setup
 
-Resume after each reboot:
+---
 
-```bash
-bash install/main.sh --resume
-```
+## Repo structure
 
-The script saves its own resume state during phase 1 and phase 2, so you no longer need to paste long resume commands.
+- `install/` — installer engine and phase logic
+- `scripts/` — build, ISO, reset, and helper scripts
+- `autoinstall/` — Ubuntu autoinstall scaffolding
+- `iso/` — ISO scaffold/build notes; generated ISO artifacts are ignored by git
+- `docs/` — design notes and architecture docs
+- `systemd/` — first-run notice/auto-resume units
 
-Direct phase-3 style apply example:
-
-```bash
-bash install/main.sh --profile fresh-two-disk --vast-install-command 'PASTE_VAST_COMMAND_HERE' --resume-after-nvidia-reboot --apply
-```
-
-For destructive two-disk storage apply, the installer now requires the exact target disk to be confirmed explicitly.
-
-## Planned structure
-
-- `docs/`
-  - design docs
-  - profile matrix
-  - disk rules
-  - future autoinstall notes
-- `install/`
-  - install engine
-  - shared library functions
-  - profile definitions
-- `web/`
-  - first generator UI
-- `bin/`
-  - entrypoint wrappers
+---
 
 ## Status
 
-Scaffold / engine phase started.
+The current ISO flow has passed real-rig testing and is now the recommended path for fresh Vast host builds.
 
-Current state:
-- docs + profile matrix in place
-- first web generator mock in place
-- install engine skeleton exists
-- detect-only path works
-- one-disk vs two-disk classification works
-- autoinstall disk-target policy module exists
-- first-run workflow mode exists
-- `--plan-only` preview mode exists
-- human-readable plan summary exists
-- single-disk phase-1 storage apply exists for post-Ubuntu installs (100G for /, rest for /var/lib/docker); autoinstall uses the same split on disks >=140GiB and falls back to root-only on smaller disks
-- two-disk phase-1 storage apply exists (largest non-root disk goes to /var/lib/docker)
-- plain-English storage confirmation prompts exist for destructive disk changes
-- three-phase manual flow exists (prep/update, NVIDIA, Vast)
-- first-pass Vast install module exists
-- first-pass verification layer exists
-- autoinstall/bootstrap scaffolding exists
-- USB-bootable ISO release path exists and v0.1.2 has passed a real bare-metal boot test
+Implemented:
 
-Still missing / still rough:
-- same-id / clean reinstall profiles
-- richer autoinstall storage generation from policy
-- more real-world validation of the single-disk live shrink/apply path
-- polish for user wording and noob-proof UX
+- USB-bootable Ubuntu Server ISO path
+- embedded installer payload
+- RAM-oriented boot/install polish
+- first-run questionnaire
+- three-phase resume workflow
+- single/multi-disk detection
+- Docker/Vast storage prep
+- NVIDIA open-driver setup
+- Vast interactive installer handoff
+- Docker/NVIDIA/Vast verification
+- `vast_metrics` executable repair
+- Vast CLI optional install
+- rig-monitor optional install and launcher
+- Fleet Health Check prerequisites optional install
+- final human-readable install report
+
+Still planned:
+
+- same-id reinstall profile
+- clean reinstall profile
+- richer generated storage policy matrix
+- more public screenshots/videos/tutorial polish

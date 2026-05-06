@@ -46,6 +46,7 @@ mkdir -p "$EXTRACT_DIR/nocloud"
 rsync -a "$ISO_DIR/nocloud/" "$EXTRACT_DIR/nocloud/"
 rsync -a "$ISO_DIR/overlay/" "$EXTRACT_DIR/opt-vast-host-installer-overlay/"
 "$ROOT_DIR/scripts/patch-iso-autoinstall-boot.sh" "$EXTRACT_DIR"
+"$ROOT_DIR/scripts/patch-casper-initrd-noise.sh" "$EXTRACT_DIR"
 
 if [[ ! -f "$EXTRACT_DIR/boot/grub/grub.cfg" ]]; then
   echo "Expected boot file missing after extraction: $EXTRACT_DIR/boot/grub/grub.cfg"

@@ -212,9 +212,9 @@ disable_auto_resume() {
 continue_after_phase() {
   local next_step="$1"
   if [[ "$AUTO_RUN" -eq 1 && "$NO_AUTO_REBOOT" -ne 1 ]]; then
-    enable_auto_resume
+    disable_auto_resume
     echo "$next_step"
-    echo "Auto mode: rebooting now. Setup will continue automatically after boot."
+    echo "Rebooting now. After boot, log in and run --resume so you can watch the next phase."
     sudo reboot
     exit 0
   fi
@@ -229,9 +229,9 @@ continue_to_manual_phase3() {
   echo "$next_step"
   echo "Phase 3 is interactive because the Vast installer asks for ports."
   echo "Auto-resume is disabled now so systemd will not run the Vast installer without your terminal."
-  command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+  command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3"
   if [[ "$AUTO_RUN" -eq 1 && "$NO_AUTO_REBOOT" -ne 1 ]]; then
-    echo "Auto mode: rebooting now. Log in after boot and run the command above."
+    echo "Auto mode: rebooting now. Log in after boot and run the preflight command above."
     sudo reboot
     exit 0
   fi
@@ -244,8 +244,8 @@ require_interactive_phase3() {
     banner "Phase 3 - Manual Vast Setup Required"
     echo "NVIDIA setup is complete."
     echo "The Vast installer is interactive and must run from your SSH/console session."
-    echo "Log in and run:"
-    command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+    echo "Log in and run the preflight check first:"
+    command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3"
     exit 0
   fi
 }
@@ -331,13 +331,17 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
     "Storage layout was prepared for this rig" \
     "Base system prep finished" \
     "Resume state was saved for phase 2"
-  continue_after_phase "Next step: reboot, then NVIDIA setup will continue."
+  continue_after_phase "Next step: reboot, then log in and run --resume to start NVIDIA setup."
 fi
 
 if [[ "$RESUME_AFTER_REBOOT" -eq 1 ]]; then
   [[ "$APPLY_CHANGES" -eq 1 ]] || die "--resume-after-reboot requires --apply"
   banner "Phase 2 - NVIDIA Open Driver Setup"
-  install_nvidia_590_open_from_known_good_flow
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    log "NVIDIA is already working; skipping Phase 2 driver install"
+  else
+    install_nvidia_590_open_from_known_good_flow
+  fi
   save_resume_state after-nvidia-reboot
   success_banner "PHASE 2 COMPLETE - NVIDIA READY"
   summary_box "What was done" \
@@ -386,12 +390,37 @@ fi
 
 verify_host_state
 mark_setup_complete
+
+phase3_done_lines=(
+  "Profile applied: $PROFILE"
+  "Ubuntu apt update, upgrade and dist-upgrade completed during base prep"
+  "Kernel/update tooling installed: update-manager-core, build-essential and linux headers"
+  "Unattended upgrades removed: sudo apt purge --auto-remove unattended-upgrades -y"
+  "apt-daily-upgrade.timer disabled and apt-daily-upgrade.service masked"
+  "apt-daily.timer disabled and apt-daily.service masked"
+  "NVIDIA driver refreshed using Ubuntu's recommended open driver package"
+  "Old NVIDIA packages purged before installing the selected driver"
+  "CUDA/NVIDIA userspace path prepared through the NVIDIA/Vast runtime flow"
+  "nvidia-xconfig enabled: Coolbits=28, empty initial config, all GPUs"
+  "Persistence mode enabled at boot: @reboot nvidia-smi -pm 1"
+  "Vast host installer completed and Vast core services were verified"
+  "Docker NVIDIA runtime verified for Vast containers"
+  "vast_metrics launcher chmod repaired and vast_metrics restarted when present"
+  "Final host verification completed"
+)
+if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
+  phase3_done_lines+=("Vast CLI installed and /usr/local/bin/vastai wrapper created")
+fi
+if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
+  phase3_done_lines+=("rig-monitor installed with /usr/local/bin/rig-monitor launcher")
+fi
+if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
+  phase3_done_lines+=("Fleet Health Check prerequisites installed")
+fi
+
+hero_banner
 success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
-summary_box "What was done" \
-  "Profile applied: $PROFILE" \
-  "Vast install flow finished" \
-  "Requested extras were installed" \
-  "Final verification completed"
+install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."
   command_list_box \

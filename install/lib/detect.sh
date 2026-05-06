@@ -18,16 +18,19 @@ get_root_disk() {
 }
 
 _disk_info_json() {
-  lsblk -J -b -o NAME,PATH,PKNAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL
+  lsblk -J -b -o NAME,PATH,PKNAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,RM,TRAN
 }
 
 list_candidate_disks() {
   python3 - <<'PY'
 import json, subprocess
-payload = json.loads(subprocess.check_output(['lsblk','-J','-b','-o','NAME,PATH,PKNAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL'], text=True))
+payload = json.loads(subprocess.check_output(['lsblk','-J','-b','-o','NAME,PATH,PKNAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,RM,TRAN'], text=True))
 for dev in payload.get('blockdevices', []):
     if dev.get('type') != 'disk':
         continue
+    removable = str(dev.get('rm') or '0') == '1'
+    transport = (dev.get('tran') or '').lower()
+    role = 'ignored-installer-media' if removable or transport == 'usb' else 'candidate'
     mounts = [m for m in (dev.get('mountpoints') or []) if m]
     print('|'.join([
         dev.get('path') or '',
@@ -35,6 +38,9 @@ for dev in payload.get('blockdevices', []):
         dev.get('fstype') or '',
         ','.join(mounts),
         (dev.get('model') or '').strip(),
+        str(dev.get('rm') or '0'),
+        dev.get('tran') or '',
+        role,
     ]))
 PY
 }
@@ -42,11 +48,11 @@ PY
 largest_non_root_disk() {
   local root
   root="$(basename "$(get_root_disk || echo '')")"
-  lsblk -b -dn -o NAME,SIZE,TYPE | awk -v root="$root" '$3 == "disk" && $1 != root {print $1 " " $2}' | sort -k2,2nr | head -n1 | awk '{print "/dev/" $1}'
+  lsblk -b -dn -o NAME,SIZE,TYPE,RM,TRAN | awk -v root="$root" '$3 == "disk" && $1 != root && $4 != "1" && tolower($5) != "usb" {print $1 " " $2}' | sort -k2,2nr | head -n1 | awk '{print "/dev/" $1}'
 }
 
 count_real_disks() {
-  lsblk -dn -o TYPE | awk '$1 == "disk" {count++} END {print count+0}'
+  lsblk -dn -o TYPE,RM,TRAN | awk '$1 == "disk" && $2 != "1" && tolower($3) != "usb" {count++} END {print count+0}'
 }
 
 classify_layout() {

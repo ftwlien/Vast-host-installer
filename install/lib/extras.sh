@@ -67,10 +67,12 @@ EOF
 }
 
 install_rig_monitor_placeholder() {
-  local target_user target_home repo_dir
+  local target_user target_home repo_dir wrapper sudoers_file sudoers_tmp invoking_user
   target_user="$(installer_target_user)"
   target_home="$(installer_target_home "$target_user")"
   repo_dir="${target_home}/rig-monitor"
+  wrapper="/usr/local/bin/rig-monitor"
+  sudoers_file="/etc/sudoers.d/rig-monitor-launcher"
   banner "Optional Extra - rig-monitor"
   if [[ -d "$repo_dir/.git" ]]; then
     step "Updating existing rig-monitor repo"
@@ -81,7 +83,46 @@ install_rig_monitor_placeholder() {
   fi
   step "Running rig-monitor installer"
   HOME="$target_home" bash "$repo_dir/scripts/install.sh"
-  if command -v rig-monitor >/dev/null 2>&1 || [[ -x /usr/local/bin/rig-monitor ]]; then
+
+  step "Creating rig-monitor launcher for ${target_user}"
+  sudo tee "$wrapper" >/dev/null <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+target_user="$target_user"
+repo_dir="$repo_dir"
+
+if [ "\$(id -un)" = "\$target_user" ]; then
+  cd "\$repo_dir"
+  exec python3 app.py "\$@"
+fi
+
+exec sudo -H -u "\$target_user" "$wrapper" "\$@"
+EOF
+  sudo chmod 0755 "$wrapper"
+
+  step "Installing rig-monitor sudoers rules"
+  invoking_user="${SUDO_USER:-}"
+  sudoers_tmp="$(mktemp)"
+  {
+    echo "# Managed by vast-host-installer. Lets the bootstrap/operator shell run rig-monitor as ${target_user}."
+    echo "${target_user} ALL=(root) NOPASSWD: /usr/local/bin/gputemps"
+    if [[ -n "$invoking_user" && "$invoking_user" != "root" && "$invoking_user" != "$target_user" ]]; then
+      echo "${invoking_user} ALL=(${target_user}) NOPASSWD: ${wrapper}"
+      echo "${invoking_user} ALL=(${target_user}) NOPASSWD: ${wrapper} *"
+    fi
+    if id vastbootstrap >/dev/null 2>&1 && [[ "vastbootstrap" != "$target_user" && "vastbootstrap" != "$invoking_user" ]]; then
+      echo "vastbootstrap ALL=(${target_user}) NOPASSWD: ${wrapper}"
+      echo "vastbootstrap ALL=(${target_user}) NOPASSWD: ${wrapper} *"
+    fi
+  } > "$sudoers_tmp"
+  if command -v visudo >/dev/null 2>&1; then
+    sudo visudo -cf "$sudoers_tmp" >/dev/null
+  fi
+  sudo install -m 0440 "$sudoers_tmp" "$sudoers_file"
+  rm -f "$sudoers_tmp"
+
+  if command -v rig-monitor >/dev/null 2>&1 || [[ -x "$wrapper" ]]; then
     success "rig-monitor installed"
   else
     die "rig-monitor install was requested but the command is still missing"

@@ -76,7 +76,7 @@ import sys
 path = Path(sys.argv[1])
 text = path.read_text()
 original = text
-needle = ' autoinstall ds=nocloud\\;s=/cdrom/nocloud/ nopersistent toram systemd.mask=var-log.mount'
+needle = ' autoinstall ds=nocloud\\;s=/cdrom/nocloud/ nopersistent toram quiet loglevel=3 modprobe.blacklist=amdgpu systemd.mask=var-log.mount'
 
 patterns = [
     r'^(\s*linux\s+.*?)(\s+---\s*)$',
@@ -92,9 +92,15 @@ for pattern in patterns:
                 prefix = f"{prefix} nopersistent"
             if 'toram' not in prefix:
                 prefix = f"{prefix} toram"
+            if 'quiet' not in prefix:
+                prefix = f"{prefix} quiet"
+            if 'loglevel=3' not in prefix:
+                prefix = f"{prefix} loglevel=3"
+            if 'modprobe.blacklist=amdgpu' not in prefix:
+                prefix = f"{prefix} modprobe.blacklist=amdgpu"
             if 'systemd.mask=var-log.mount' not in prefix:
-                return f"{prefix} systemd.mask=var-log.mount{suffix}"
-            return match.group(0)
+                prefix = f"{prefix} systemd.mask=var-log.mount"
+            return f"{prefix}{suffix}"
         return f"{prefix}{needle}{suffix}"
     text = re.sub(pattern, repl, text, flags=re.MULTILINE)
 
