@@ -560,6 +560,7 @@ stress_test_lines+=("storage_layout")
 stress_test_lines+=("sudo vast_ready_check")
 stress_test_lines+=("sudo disk_health")
 stress_test_lines+=("sudo docker system df")
+stress_test_lines+=("sudo vast_system_update")
 if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
   stress_test_lines+=("rig-monitor")
 fi

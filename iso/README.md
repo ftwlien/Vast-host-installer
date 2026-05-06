@@ -86,7 +86,7 @@ This should be generated fresh from the Vast.ai console for every rig/install at
 - **gpu-burn stress test**: builds `wilicc/gpu-burn` after NVIDIA/CUDA setup, installs `gpu_burn` globally, and adds a bash shortcut so `./gpu_burn` works from normal operator shells
 - **CPU/RAM burn + Memtest86+ stress tests**: installs `stress-ng`, `memtester` and `memtest86+`, then creates `cpu_burn 60` and a seconds-based `memtester 60` wrapper for clean Linux-side CPU/RAM stress tests from anywhere
 - **Full burn test**: when CPU/RAM and GPU burn are installed, creates `full_burn 7200` for a 2-hour combined CPU+GPU+RAM burn-in with logs saved under `~/burn-logs`
-- **Readiness/diagnostic tools**: installs `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, and `sudo vast_cleanup` for final validation, disk health, speed/PCIe checks, and safe Docker cleanup. `sudo vast_cleanup` should only run when the machine is idle/unlisted and you are sure no customer data must be preserved
+- **Readiness/diagnostic tools**: installs `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, `sudo vast_system_update`, and `sudo vast_cleanup` for final validation, disk health, speed/PCIe checks, and safe Docker cleanup. `sudo vast_cleanup` should only run when the machine is idle/unlisted and you are sure no customer data must be preserved
 
 ## Phase summary
 

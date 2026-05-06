@@ -373,11 +373,12 @@ EOF
 }
 
 install_host_polish_tools() {
-  local storage_layout disk_health vast_ready_check vast_cleanup
+  local storage_layout disk_health vast_ready_check vast_cleanup vast_system_update
   storage_layout="/usr/local/bin/storage_layout"
   disk_health="/usr/local/bin/disk_health"
   vast_ready_check="/usr/local/bin/vast_ready_check"
   vast_cleanup="/usr/local/bin/vast_cleanup"
+  vast_system_update="/usr/local/bin/vast_system_update"
 
   banner "Host Polish Tools"
 
@@ -630,7 +631,71 @@ SCRIPT
   sudo chmod 0755 "$vast_cleanup"
   sudo bash -n "$vast_cleanup"
 
-  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup"
+  step "Installing vast_system_update command"
+  sudo tee "$vast_system_update" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+
+echo "WARNING: vast_system_update should only run when the machine is idle/unlisted."
+echo "Kernel/driver updates can restart services and may require a reboot."
+echo
+read -r -p "Type UPDATE IDLE MACHINE to continue: " answer
+case "$answer" in
+  "UPDATE IDLE MACHINE") ;;
+  *) echo "Cancelled."; exit 0 ;;
+esac
+
+echo "== Current kernel / NVIDIA =="
+uname -r || true
+nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | sed 's/^/NVIDIA driver: /' || true
+
+echo
+echo "== Updating apt package lists =="
+apt-get update
+
+echo
+echo "== Upgrading packages, kernels and drivers =="
+apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade -y
+
+if command -v ubuntu-drivers >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1; then
+  echo
+  echo "== Refreshing recommended Ubuntu NVIDIA driver packages =="
+  ubuntu-drivers autoinstall || true
+fi
+
+echo
+echo "== Cleaning unused packages =="
+apt-get autoremove --purge -y
+apt-get autoclean -y
+
+echo
+echo "== Updated kernel / NVIDIA =="
+uname -r || true
+nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | sed 's/^/NVIDIA driver: /' || true
+
+if [[ -f /var/run/reboot-required ]]; then
+  echo
+  echo "REBOOT REQUIRED: run sudo reboot when the machine is idle/unlisted."
+  [[ -f /var/run/reboot-required.pkgs ]] && cat /var/run/reboot-required.pkgs || true
+else
+  echo
+  echo "No reboot-required flag found."
+fi
+SCRIPT
+sudo chmod 0755 "$vast_system_update"
+  sudo bash -n "$vast_system_update"
+
+
+  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup, vast_system_update"
 }
 
 install_gpu_fan_control() {

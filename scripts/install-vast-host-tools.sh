@@ -13,6 +13,7 @@ Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - vast_ready_check
 - disk_health
 - vast_cleanup
+- vast_system_update
 - cpu_burn
 - memtester wrapper
 - gpu_burn
@@ -261,6 +262,67 @@ docker system df || true
 SCRIPT
 chmod 0755 /usr/local/bin/vast_cleanup
 
+cat >/usr/local/bin/vast_system_update <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+export NEEDRESTART_SUSPEND=1
+
+echo "WARNING: vast_system_update should only run when the machine is idle/unlisted."
+echo "Kernel/driver updates can restart services and may require a reboot."
+echo
+read -r -p "Type UPDATE IDLE MACHINE to continue: " answer
+case "$answer" in
+  "UPDATE IDLE MACHINE") ;;
+  *) echo "Cancelled."; exit 0 ;;
+esac
+
+echo "== Current kernel / NVIDIA =="
+uname -r || true
+nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | sed 's/^/NVIDIA driver: /' || true
+
+echo
+echo "== Updating apt package lists =="
+apt-get update
+
+echo
+echo "== Upgrading packages, kernels and drivers =="
+apt-get -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold full-upgrade -y
+
+if command -v ubuntu-drivers >/dev/null 2>&1 && command -v nvidia-smi >/dev/null 2>&1; then
+  echo
+  echo "== Refreshing recommended Ubuntu NVIDIA driver packages =="
+  ubuntu-drivers autoinstall || true
+fi
+
+echo
+echo "== Cleaning unused packages =="
+apt-get autoremove --purge -y
+apt-get autoclean -y
+
+echo
+echo "== Updated kernel / NVIDIA =="
+uname -r || true
+nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -n1 | sed 's/^/NVIDIA driver: /' || true
+
+if [[ -f /var/run/reboot-required ]]; then
+  echo
+  echo "REBOOT REQUIRED: run sudo reboot when the machine is idle/unlisted."
+  [[ -f /var/run/reboot-required.pkgs ]] && cat /var/run/reboot-required.pkgs || true
+else
+  echo
+  echo "No reboot-required flag found."
+fi
+SCRIPT
+chmod 0755 /usr/local/bin/vast_system_update
+
 cat >/usr/local/bin/cpu_burn <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -479,9 +541,10 @@ lines+=("sudo vast_ready_check")
 lines+=("sudo disk_health")
 lines+=("sudo docker system df")
 lines+=("sudo vast_cleanup")
+lines+=("sudo vast_system_update")
 lines+=("sudo vast_install_gpu_burn")
 
-quick=("vast_install_summary" "storage_layout" "sudo vast_ready_check" "sudo disk_health" "sudo docker system df")
+quick=("vast_install_summary" "storage_layout" "sudo vast_ready_check" "sudo disk_health" "sudo docker system df" "sudo vast_system_update")
 command -v gpu_burn >/dev/null 2>&1 || quick+=("sudo vast_install_gpu_burn")
 command -v cpu_burn >/dev/null 2>&1 && quick+=("cpu_burn 60")
 command -v memtester >/dev/null 2>&1 && quick+=("memtester 60")
@@ -507,7 +570,7 @@ echo "More CLI examples: https://docs.vast.ai/cli/hello-world"
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 
-for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_install_gpu_burn vast_install_summary; do
+for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_summary; do
   bash -n "/usr/local/bin/$cmd"
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/memtester
@@ -523,7 +586,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_install_gpu_burn cpu_burn memtester gpu_burn full_burn
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn cpu_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"

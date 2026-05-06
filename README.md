@@ -302,12 +302,15 @@ vastai self-test machine YOUR_MACHINE_ID
 
 `storage_layout` shows a clean disk/partition/mount/usage overview, including Docker XFS/prjquota status.
 
+`sudo vast_system_update` updates apt packages, kernels and Ubuntu/NVIDIA driver packages. Only run it when the machine is idle/unlisted because a reboot may be required.
+
 `sudo vast_ready_check` checks Docker, NVIDIA, Vast services, `/var/lib/docker` XFS/prjquota, Secure Boot state, GPU PCIe link info, and runs a network speed test when available.
 
 ```bash
 storage_layout
 sudo disk_health
 sudo docker system df
+sudo vast_system_update
 ```
 
 Shows disk layout, filesystem usage, and NVMe/SMART health summaries.

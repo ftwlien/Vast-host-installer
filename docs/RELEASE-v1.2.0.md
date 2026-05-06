@@ -20,7 +20,7 @@ This release adds the polished optional-extras flow and post-install stress test
 - `memtester 60` dedicated RAM test command using `memtester`
 - Memtest86+ package installed for boot-menu/offline memory testing
 - `full_burn 7200` combined CPU+GPU+RAM 2-hour burn-in command with `~/burn-logs` output
-- `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, and `sudo vast_cleanup` operator/helper commands
+- `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, `sudo vast_system_update`, and `sudo vast_cleanup` operator/helper commands
 - single public repo helper `scripts/install-vast-host-tools.sh` for adding the Phase 3-style summary, validation tools, and CPU/RAM burn tools to existing Ubuntu rigs without reinstalling
 - `--install-extras` mode for installing or repairing optional extras later without rerunning storage/Vast setup
 - cleaner `6/6 Optional extra choices` prompt with short explanations
@@ -41,6 +41,7 @@ storage_layout
 sudo vast_ready_check
 sudo disk_health
 sudo docker system df
+sudo vast_system_update
 vastai --help
 vastai show user
 vastai show machines
