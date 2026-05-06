@@ -280,7 +280,21 @@ if (( memory_mb < 64 )); then
 fi
 
 # Use timeout for seconds-based UX while preserving memtester's dedicated RAM test behavior.
-exec timeout --foreground "${seconds}s" /usr/bin/memtester "${memory_mb}M" 1
+real_memtester="/usr/sbin/memtester"
+if [[ ! -x "$real_memtester" ]]; then
+  real_memtester="/sbin/memtester"
+fi
+if [[ ! -x "$real_memtester" ]]; then
+  echo "memtester package binary not found at /usr/sbin/memtester or /sbin/memtester" >&2
+  exit 1
+fi
+status=0
+timeout --foreground "${seconds}s" "$real_memtester" "${memory_mb}M" 1 || status=$?
+if [[ "$status" -eq 124 ]]; then
+  echo "memtester timed test completed after ${seconds}s"
+  exit 0
+fi
+exit "$status"
 EOF
   sudo chmod 0755 "$ram_wrapper"
   sudo bash -n "$ram_wrapper"

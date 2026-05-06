@@ -428,7 +428,7 @@ if [[ "$INSTALL_EXTRAS_MODE" -eq 1 ]]; then
   if command -v full_burn >/dev/null 2>&1; then
     extras_done_lines+=("Full burn: full_burn 7200 logs to ~/burn-logs")
   fi
-  extras_done_lines+=("Readiness tools: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_cleanup")
+  extras_done_lines+=("Readiness tools: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_system_update, sudo vast_cleanup")
 
   success_banner "OPTIONAL EXTRAS COMPLETE"
   install_report_box "What was installed" "${extras_done_lines[@]}"
@@ -542,7 +542,7 @@ fi
 if command -v full_burn >/dev/null 2>&1; then
   phase3_done_lines+=("Full CPU+GPU+RAM burn command installed with /usr/local/bin/full_burn wrapper and ~/burn-logs output")
 fi
-phase3_done_lines+=("Host polish commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_cleanup")
+phase3_done_lines+=("Host polish commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_system_update, sudo vast_cleanup")
 
 stress_test_lines=()
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
