@@ -1,26 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WITH_BURN_TOOLS=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --with-burn-tools)
-      WITH_BURN_TOOLS=1
-      shift
-      ;;
     -h|--help)
       cat <<'EOF'
-Usage: sudo ./scripts/install-vast-host-tools.sh [--with-burn-tools]
+Usage: sudo ./scripts/install-vast-host-tools.sh
 
-Installs standalone Vast host helper commands for already-running rigs:
+Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - vast_install_summary
 - storage_layout
 - vast_ready_check
 - disk_health
 - vast_cleanup
-
-Optional:
-- --with-burn-tools installs cpu_burn, memtester package, and full_burn when gpu_burn exists.
+- cpu_burn
+- memtester wrapper
+- full_burn when gpu_burn is already installed
 EOF
       exit 0
       ;;
@@ -43,9 +38,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil
   apt-get install -y speedtest-cli || true
-  if [[ "$WITH_BURN_TOOLS" -eq 1 ]]; then
-    apt-get install -y stress-ng memtester memtest86+
-  fi
+  apt-get install -y stress-ng memtester memtest86+
 fi
 
 cat >/usr/local/bin/storage_layout <<'SCRIPT'
@@ -250,17 +243,16 @@ docker system df || true
 SCRIPT
 chmod 0755 /usr/local/bin/vast_cleanup
 
-if [[ "$WITH_BURN_TOOLS" -eq 1 ]]; then
-  cat >/usr/local/bin/cpu_burn <<'SCRIPT'
+cat >/usr/local/bin/cpu_burn <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 seconds="${1:-60}"
 case "$seconds" in ''|*[!0-9]*) echo "Usage: cpu_burn [seconds]" >&2; echo "Example: cpu_burn 60" >&2; exit 2;; esac
 exec stress-ng --cpu 0 --cpu-method matrixprod --verify --metrics-brief --timeout "${seconds}s"
 SCRIPT
-  chmod 0755 /usr/local/bin/cpu_burn
+chmod 0755 /usr/local/bin/cpu_burn
 
-  cat >/usr/local/bin/memtester <<'SCRIPT'
+cat >/usr/local/bin/memtester <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 seconds="${1:-60}"
@@ -273,10 +265,10 @@ fi
 (( memory_mb >= 64 )) || { echo "Not enough available memory for memtester (${memory_mb}M calculated)" >&2; exit 1; }
 exec timeout --foreground "${seconds}s" /usr/bin/memtester "${memory_mb}M" 1
 SCRIPT
-  chmod 0755 /usr/local/bin/memtester
+chmod 0755 /usr/local/bin/memtester
 
-  if command -v gpu_burn >/dev/null 2>&1; then
-    cat >/usr/local/bin/full_burn <<'SCRIPT'
+if command -v gpu_burn >/dev/null 2>&1; then
+  cat >/usr/local/bin/full_burn <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 seconds="${1:-7200}"
@@ -306,8 +298,7 @@ fi
 echo "full_burn completed successfully"
 echo "Log saved to: $log_file"
 SCRIPT
-    chmod 0755 /usr/local/bin/full_burn
-  fi
+  chmod 0755 /usr/local/bin/full_burn
 fi
 
 cat >/usr/local/bin/vast_install_summary <<'SCRIPT'
@@ -414,15 +405,12 @@ chmod 0755 /usr/local/bin/vast_install_summary
 for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_install_summary; do
   bash -n "/usr/local/bin/$cmd"
 done
-if [[ "$WITH_BURN_TOOLS" -eq 1 ]]; then
-  bash -n /usr/local/bin/cpu_burn /usr/local/bin/memtester
-  [[ -x /usr/local/bin/full_burn ]] && bash -n /usr/local/bin/full_burn || true
-fi
+bash -n /usr/local/bin/cpu_burn /usr/local/bin/memtester
+[[ -x /usr/local/bin/full_burn ]] && bash -n /usr/local/bin/full_burn || true
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-with_burn_tools=$WITH_BURN_TOOLS
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup cpu_burn memtester full_burn_if_gpu_burn_exists
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"

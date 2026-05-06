@@ -273,11 +273,7 @@ Then run:
 vast_install_summary
 ```
 
-Optional burn-tool mode for existing rigs:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash -s -- --with-burn-tools
-```
+This one installer also adds the local CPU/RAM burn commands (`cpu_burn` and `memtester`). If `gpu_burn` already exists on the rig, it also adds `full_burn`.
 
 This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
 
