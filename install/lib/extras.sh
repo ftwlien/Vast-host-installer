@@ -504,7 +504,24 @@ has docker && ok "docker command installed" || bad "docker command missing"
 check_service docker
 check_service containerd
 check_service vastai
-check_service vast_metrics
+if systemctl list-unit-files vast_metrics.service --no-legend 2>/dev/null | grep -q '^vast_metrics\.service'; then
+  if active vast_metrics; then
+    ok "vast_metrics service active"
+  else
+    launcher="/var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh"
+    if [[ -e "$launcher" && ! -x "$launcher" && "${EUID:-$(id -u)}" -eq 0 ]]; then
+      soft "vast_metrics inactive; repairing launcher execute permission"
+      chmod 0755 "$launcher" 2>/dev/null || true
+      systemctl restart vast_metrics.service 2>/dev/null || true
+      sleep 1
+      active vast_metrics && ok "vast_metrics service active after permission repair" || bad "vast_metrics service not active; try: sudo chmod 0755 $launcher && sudo systemctl restart vast_metrics"
+    else
+      bad "vast_metrics service not active; try: sudo chmod 0755 /var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh && sudo systemctl restart vast_metrics"
+    fi
+  fi
+else
+  soft "vast_metrics service not installed"
+fi
 check_service nvidia-persistenced
 check_service nvidia-xorg
 check_service gpu-fan

@@ -147,7 +147,24 @@ has docker && ok "docker command installed" || bad "docker command missing"
 check_service docker
 check_service containerd
 check_service vastai
-check_service vast_metrics
+if systemctl list-unit-files vast_metrics.service --no-legend 2>/dev/null | grep -q '^vast_metrics\.service'; then
+  if active vast_metrics; then
+    ok "vast_metrics service active"
+  else
+    launcher="/var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh"
+    if [[ -e "$launcher" && ! -x "$launcher" && "${EUID:-$(id -u)}" -eq 0 ]]; then
+      soft "vast_metrics inactive; repairing launcher execute permission"
+      chmod 0755 "$launcher" 2>/dev/null || true
+      systemctl restart vast_metrics.service 2>/dev/null || true
+      sleep 1
+      active vast_metrics && ok "vast_metrics service active after permission repair" || bad "vast_metrics service not active; try: sudo chmod 0755 $launcher && sudo systemctl restart vast_metrics"
+    else
+      bad "vast_metrics service not active; try: sudo chmod 0755 /var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh && sudo systemctl restart vast_metrics"
+    fi
+  fi
+else
+  soft "vast_metrics service not installed"
+fi
 check_service nvidia-persistenced
 check_service nvidia-xorg
 check_service gpu-fan
@@ -517,6 +534,14 @@ for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_install
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/memtester
 [[ -x /usr/local/bin/full_burn ]] && bash -n /usr/local/bin/full_burn || true
+
+
+# Repair a common Vast metrics install issue: launcher exists but is not executable.
+metrics_launcher="/var/lib/vastai_kaalia/latest/launch_metrics_pusher.sh"
+if [[ -e "$metrics_launcher" && ! -x "$metrics_launcher" ]]; then
+  chmod 0755 "$metrics_launcher" || true
+  systemctl restart vast_metrics.service 2>/dev/null || true
+fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
