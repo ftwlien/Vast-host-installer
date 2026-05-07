@@ -701,3 +701,15 @@ Still planned:
 - clean reinstall profile
 - richer generated storage policy matrix
 - more public screenshots/videos/tutorial polish
+
+---
+
+## License
+
+This project is **not MIT licensed**.
+
+It is source-available for personal, educational, hobby, research, and other non-commercial use under the terms in [`LICENSE`](LICENSE).
+
+Commercial use is prohibited without prior written permission from the copyright holder. That includes hosting, resale, paid services, integration into commercial products or workflows, internal business use, or use by companies to support commercial GPU, AI, cloud, hosting, compute, or Vast.ai infrastructure.
+
+Businesses and commercial users need a separate written commercial license. See [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md).
