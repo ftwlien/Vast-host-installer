@@ -422,50 +422,6 @@ More Vast CLI examples:
 
 ---
 
-## Existing Ubuntu rig installer
-
-For rigs that are **already installed and running Ubuntu**, you do not need the ISO.
-
-Use the public helper installer to add the same Phase 3-style summary, validation tools, port helpers, burn tools, and host-polish commands:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
-```
-
-Then run:
-
-```bash
-vast_install_summary
-```
-
-This adds:
-
-- `vast_install_summary`
-- `storage_layout`
-- `sudo vast_ready_check`
-- `sudo disk_health`
-- `sudo vast_system_update`
-- `sudo vast_cleanup`
-- `sudo vast_port_range` / `sudo vast_port_check`
-- `cpu_burn`
-- `ram_burn`
-- `gpu_burn`
-- `full_burn`
-- `sudo rig-burn-cleanup`
-- `rig-monitor` when available/installed
-
-If gpu-burn ever needs repair:
-
-```bash
-sudo vast_install_gpu_burn
-```
-
-This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
-
-Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
-
----
-
 ## Installer phases
 
 ### Phase 1 — Storage and system prep
@@ -537,6 +493,50 @@ Phase 3:
 - prints the final polished install report
 
 When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
+
+---
+
+## Existing Ubuntu rig installer
+
+For rigs that are **already installed and running Ubuntu**, you do not need the ISO.
+
+Use the public helper installer to add the same Phase 3-style summary, validation tools, port helpers, burn tools, and host-polish commands:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
+```
+
+Then run:
+
+```bash
+vast_install_summary
+```
+
+This adds:
+
+- `vast_install_summary`
+- `storage_layout`
+- `sudo vast_ready_check`
+- `sudo disk_health`
+- `sudo vast_system_update`
+- `sudo vast_cleanup`
+- `sudo vast_port_range` / `sudo vast_port_check`
+- `cpu_burn`
+- `ram_burn`
+- `gpu_burn`
+- `full_burn`
+- `sudo rig-burn-cleanup`
+- `rig-monitor` when available/installed
+
+If gpu-burn ever needs repair:
+
+```bash
+sudo vast_install_gpu_burn
+```
+
+This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
+
+Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
 
 ---
 
