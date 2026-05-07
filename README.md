@@ -170,15 +170,20 @@ When Ubuntu finishes, remove the USB stick if prompted and reboot into the insta
 
 ### Step 5 — Start the guided Vast setup
 
-Log in as the bootstrap user shown by the installer/login notice.
+Log in with the temporary bootstrap account:
 
-Then start the guided setup:
+```text
+username: vastbootstrap
+password: vastbootstrap
+```
+
+Then start the guided setup immediately:
 
 ```bash
 sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
 ```
 
-The login screen also reminds you of this command.
+The login screen also reminds you of this command. After first-run creates the final operator user, the temporary `vastbootstrap` account is locked when the final user is different.
 
 ---
 
