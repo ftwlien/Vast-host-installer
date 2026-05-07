@@ -2,7 +2,7 @@
 
 **A fast, no-bullshit Ubuntu Server ISO for building Vast.ai GPU hosts.**
 
-This project turns a bare rig into a clean Vast-ready host with a guided, three-phase installer. Flash the ISO, boot the machine, answer a few questions, reboot when told, and the installer handles the annoying parts: storage layout, system prep, NVIDIA driver setup, Vast bootstrap, Docker/NVIDIA verification, rig-monitor, and optional Fleet Health Check prep.
+This project turns a bare rig into a clean, repeatable, Vast-ready GPU host. Flash the ISO, boot the machine, answer the machine-specific questions, reboot when told, and the installer handles the boring/error-prone work: storage layout, Docker/Vast storage, NVIDIA drivers, Vast bootstrap, helper tools, stress tests, fan control, validation, and a clean final report.
 
 The goal is simple: **make a fresh Vast host feel boringly reliable, even for people who have never installed a Linux GPU rig before.**
 
@@ -16,11 +16,43 @@ Download the latest release here:
 
 Current recommended ISO:
 
-- **`vast-host-installer-jammy-v1.2.0.iso`**
-- Ubuntu Server Jammy-based custom autoinstall ISO
-- Boots the USB and installer into RAM for a fast, clean install experience
-- Installer payload is embedded locally at `/opt/vast-host-installer`
-- SHA256: see the `.sha256` file attached to the GitHub release.
+- **`vast-host-installer-jammy-v1.2.6.iso`**
+- Ubuntu Server 22.04 Jammy-based custom Vast.ai host ISO
+- Boots/stages the installer cleanly from USB with a local payload at `/opt/vast-host-installer`
+- Includes the polished Phase 3 summary, burn-test suite, port helpers, readiness checks, and existing-rig tools
+- SHA256: see the `.sha256` file attached to the GitHub release
+
+---
+
+## Why this ISO is better than a normal Ubuntu install
+
+A normal Ubuntu installer gives you an operating system and then leaves you with a pile of manual GPU-host work:
+
+- install/update NVIDIA correctly
+- install Docker and NVIDIA container runtime
+- prepare `/var/lib/docker` for Vast workloads
+- run the Vast.ai host bootstrap command
+- check services, ports, Docker, NVIDIA, storage, PCIe, and network
+- build burn tools
+- tune fans
+- remember the right commands later
+
+This ISO is different. It turns Ubuntu into a **purpose-built Vast host appliance**.
+
+What you get:
+
+- one repeatable install flow for every rig
+- guided three-phase setup with resume after reboots
+- storage planning before destructive disk work
+- Docker/Vast storage prepared for real workloads
+- NVIDIA open-driver setup and validation
+- official Vast.ai installer handoff, then verification
+- helper scripts installed globally so the rig is maintainable later
+- burn/stress tools for proving stability before listing the machine
+- clean final summary screen with exactly what was installed and what to run next
+- a separate installer for already-running Ubuntu rigs, so existing machines can get the same toolkit without reinstalling
+
+Short version: **normal installers give you Ubuntu. This gives you a standardized Vast.ai GPU host build.**
 
 ---
 
@@ -31,24 +63,30 @@ The ISO installs Ubuntu Server and stages the Vast Host Installer directly onto 
 It can:
 
 - install Ubuntu Server from a USB stick
-- use RAM boot/install flags for a smoother install
-- create the bootstrap login user
+- use a custom autoinstall scaffold and local installer payload
 - stage the installer in `/opt/vast-host-installer`
+- create the temporary bootstrap login handoff
+- ask for the final hostname/operator user/password at first run
+- ask for a fresh Vast.ai host install command at first run
 - detect single-disk vs multi-disk rigs
 - explain the storage plan before destructive storage changes
 - prepare `/var/lib/docker` correctly for Vast workloads
-- run apt update/upgrade/dist-upgrade cleanup
-- disable/mask unattended apt jobs that interfere with installs
-- install the recommended NVIDIA open driver flow
-- configure NVIDIA persistence/Coolbits basics
-- run the official interactive Vast.ai host install command
-- verify NVIDIA, Docker, Docker NVIDIA runtime, and Vast services
+- support XFS/prjquota Docker storage checks
+- run apt update/upgrade/dist-upgrade cleanup with noninteractive handling
+- disable/mask background apt jobs that interfere with installs
+- install/refresh the recommended NVIDIA open-driver flow
+- configure NVIDIA persistence and headless Xorg/Coolbits basics when fan control is enabled
+- run the official interactive Vast.ai host installer command
+- verify Docker, NVIDIA, NVIDIA Docker runtime, Vast services, and metrics
 - repair the known `vast_metrics` executable-bit issue when present
-- optionally install Vast CLI
-- optionally install `rig-monitor`
-- optionally install Fleet Health Check prerequisites
-- optionally install aggressive Vast.ai GPU fan control, `gpu_burn`, `cpu_burn`, and `full_burn` stress testing
-- print a final full install report so you know what happened
+- preserve an existing Vast.ai host port range instead of overwriting it
+- install Vast CLI
+- install `rig-monitor`
+- install Fleet Health Check prerequisites
+- install aggressive Vast.ai GPU fan control
+- install CPU, RAM, GPU, and full-system burn tools
+- install cleanup/update/diagnostic/helper commands
+- print a final Phase 3-style install report with logo, boxes, colors, and next commands
 
 In plain English: **the ISO gets Ubuntu on the box, then the installer does the Vast host build for you.**
 
@@ -77,10 +115,10 @@ Go to:
 Download:
 
 ```text
-vast-host-installer-jammy-v1.2.0.iso
+vast-host-installer-jammy-v1.2.6.iso
 ```
 
-Optional but recommended: verify the SHA256 checksum matches the value shown in the release notes.
+Optional but recommended: verify the SHA256 checksum matches the `.sha256` file attached to the release.
 
 ---
 
@@ -94,7 +132,7 @@ Use one of these tools:
 Basic flow:
 
 1. Open balenaEtcher or Rufus.
-2. Select `vast-host-installer-jammy-v1.2.0.iso`.
+2. Select `vast-host-installer-jammy-v1.2.6.iso`.
 3. Select your USB stick.
 4. Click flash/start.
 5. Wait until it finishes.
@@ -110,7 +148,7 @@ Before booting the installer, make life easy:
 
 1. Back up anything important from the rig.
 2. Remove disks you do **not** want touched if you are unsure.
-3. In the BIOS/UEFI, disable Secure Boot if NVIDIA driver loading gives trouble.
+3. In BIOS/UEFI, disable Secure Boot if NVIDIA driver loading gives trouble.
 4. Make sure the machine is connected to the internet.
 5. If you want the cleanest install, wipe/format the target disks before starting Ubuntu setup.
 
@@ -118,7 +156,7 @@ The installer has disk detection and confirmation prompts, but do not gamble wit
 
 ---
 
-### Step 4 — Boot from the USB stick
+### Step 4 — Boot from USB
 
 1. Plug the USB stick into the rig.
 2. Power on the rig.
@@ -126,13 +164,11 @@ The installer has disk detection and confirmation prompts, but do not gamble wit
 4. Pick the USB stick.
 5. Let Ubuntu Server autoinstall run.
 
-The ISO is designed so Ubuntu installs quickly and cleanly. On a decent rig, this should feel much smoother than a manual Ubuntu install.
-
 When Ubuntu finishes, remove the USB stick if prompted and reboot into the installed system.
 
 ---
 
-### Step 5 — Log in after Ubuntu installs
+### Step 5 — Start the guided Vast setup
 
 Log in as the bootstrap user shown by the installer/login notice.
 
@@ -146,11 +182,11 @@ The login screen also reminds you of this command.
 
 ---
 
-## The 3 questions before Phase 1
+## First-run questions
 
-Before Phase 1 starts, the installer asks a short first-run questionnaire. This is where you provide the machine-specific stuff that should **not** be baked into a public ISO.
+Before Phase 1 starts, the installer asks for the few things that should **not** be baked into a public ISO.
 
-### 1/3 — Machine identity
+### Machine identity
 
 The installer asks for:
 
@@ -160,17 +196,17 @@ The installer asks for:
 
 This lets every rig get its own clean identity instead of cloning the same hostname/user forever.
 
-### 2/3 — Vast bootstrap
+### Vast bootstrap
 
 The installer asks for:
 
 - the full Vast.ai host install command from your Vast.ai console
 
-Paste the whole command exactly. The Vast install command is interactive and may ask for port settings. Use a valid port range such as something inside `1024-65535`.
+Paste the whole command exactly. The Vast install command is interactive and may ask for port settings. Use a valid port range inside `1024-65535`.
 
 Do **not** reuse an old/expired Vast install command. If in doubt, generate a fresh one.
 
-### 6/6 — Optional extra choices
+### Optional extras
 
 The installer asks if you want these extras:
 
@@ -186,25 +222,25 @@ vastai self-test machine YOUR_MACHINE_ID
 
 #### rig-monitor
 
-Installs Andy’s `rig-monitor` tool for quick local rig checks.
+Installs Andy's `rig-monitor` tool for quick local rig checks.
 
-After install, you should be able to run:
+After install:
 
 ```bash
 rig-monitor
 ```
 
-The installer creates a launcher so the bootstrap/operator shell can run it cleanly without manually jumping into the `vast` user.
+The installer creates a launcher so the bootstrap/operator shell can run it cleanly.
 
 #### Fleet Health Check prerequisites
 
-Installs prerequisites for the Fleet Health Check tooling, including helper permissions needed for GPU/disk health checks.
+Installs prerequisites for Fleet Health Check tooling, including helper permissions needed for GPU/disk health checks.
 
 This is useful if you manage multiple rigs and want consistent fleet diagnostics later.
 
 #### Aggressive Vast.ai GPU fan control
 
-Installs a reboot-safe headless Xorg + fan-control service for NVIDIA rigs. The curve is tuned for Vast hosting stability:
+Installs reboot-safe headless Xorg + fan-control services for NVIDIA rigs. The curve is tuned for Vast hosting stability:
 
 - under 50°C → NVIDIA auto mode, so idle fans can stop
 - 50–59°C → 50%
@@ -222,7 +258,7 @@ The installer creates:
 
 - `/usr/local/bin/gpu_burn` — works from anywhere as `gpu_burn`
 - `~/gpu_burn` — so from the operator home directory, `./gpu_burn` works too
-- bash shortcuts — so in a normal operator bash shell, `./gpu_burn` also launches gpu-burn from any directory
+- bash shortcut behavior so normal operator shells can launch it easily
 
 Example 60-second full-memory test:
 
@@ -230,22 +266,30 @@ Example 60-second full-memory test:
 gpu_burn -tc -m 100% 60
 ```
 
-Or with the installed `./gpu_burn` shortcut:
+The wrapper handles numeric-duration runs with a safe timeout grace window and treats the expected timeout completion cleanly, avoiding stuck orphan `gpu_burn` processes.
 
-```bash
-./gpu_burn -tc -m 100% 60
-```
+#### CPU/RAM burn and Memtest86+ tools
 
-#### CPU/RAM burn and Memtest86+ stress-test tools
-
-Installs `stress-ng`, `memtester` and `memtest86+`, then creates simple global CPU and RAM load commands:
+Installs `stress-ng`, `stressapptest`, and `memtest86+`, then creates simple global CPU and RAM load commands:
 
 ```bash
 cpu_burn 60
-memtester 60
+sudo ram_burn 60
 ```
 
-`cpu_burn` runs all CPU threads hard for 60 seconds. `memtester` runs a dedicated Linux-side RAM test for 60 seconds. Memtest86+ is installed for offline boot-menu memory testing when you want a deeper pre-OS RAM check.
+`cpu_burn` runs all CPU threads hard for the requested seconds.
+
+`ram_burn` runs `stressapptest` with auto-sized memory and always includes:
+
+```text
+--pause_delay 999999
+```
+
+A `memtester` compatibility shim is kept for old habits, but the RAM burn backend is `stressapptest` because it behaves better for this use case.
+
+Memtest86+ is installed for offline boot-menu memory testing when you want a deeper pre-OS RAM check.
+
+#### Full-system burn test
 
 If CPU/RAM and GPU burn tools are installed, the installer also creates:
 
@@ -253,15 +297,136 @@ If CPU/RAM and GPU burn tools are installed, the installer also creates:
 full_burn 7200
 ```
 
-That tests the whole machine by running RAM, CPU and GPU stress together for 2 hours, and writes a timestamped log under:
+That tests the whole machine by running RAM + CPU + GPU stress together for 2 hours, and writes timestamped logs under:
 
 ```text
 ~/burn-logs/
 ```
 
-#### Existing Ubuntu rig host-tools installer
+If something gets stuck after a burn test:
 
-For rigs that are **already installed and running Ubuntu**, you do not need the ISO. Use the public repo helper installer to add the same Phase 3-style summary and validation tools:
+```bash
+sudo rig-burn-cleanup
+```
+
+---
+
+## Final summary screen
+
+At the end, the installer prints a clean Phase 3 summary screen:
+
+- big Vast Host logo/banner
+- green success banner
+- cyan box titles/borders
+- green checkmarks
+- white command text
+- dedicated port-range box
+- quick burn/stress-test command box
+- useful host-polish command box
+- optional Vast CLI next-steps box
+
+You can reopen it anytime:
+
+```bash
+vast_install_summary
+```
+
+This is intentionally not a raw wall of logs. It is the human-readable “what happened and what do I run next?” screen.
+
+---
+
+## Installed utility commands
+
+### Summary and layout
+
+```bash
+vast_install_summary
+storage_layout
+```
+
+- `vast_install_summary` reopens the saved Phase 3 report.
+- `storage_layout` shows disk/partition/mount/usage overview, including Docker XFS/prjquota status.
+
+### Readiness and health
+
+```bash
+sudo vast_ready_check
+sudo disk_health
+sudo docker system df
+```
+
+- `sudo vast_ready_check` checks Docker, containerd, Vast services, `vast_metrics`, NVIDIA, NVIDIA Docker runtime, Docker root, XFS/prjquota, Secure Boot state, GPU PCIe links, and network speedtest when available.
+- `sudo disk_health` shows disk layout, filesystem usage, and NVMe/SMART health.
+- `sudo docker system df` shows Docker disk usage.
+
+### Vast host port helpers
+
+```bash
+cat /var/lib/vastai_kaalia/host_port_range
+sudo vast_port_range START-END
+sudo vast_port_check
+```
+
+- The installer does **not** overwrite an existing Vast host port range.
+- `vast_port_range` changes the range only when you ask it to.
+- `vast_port_check` verifies the current config/helper state.
+
+### Updates and cleanup
+
+```bash
+sudo vast_system_update
+sudo vast_cleanup
+```
+
+- `sudo vast_system_update` updates apt packages, kernels, and Ubuntu/NVIDIA driver packages. Run only when idle/unlisted because reboot may be required.
+- `sudo vast_cleanup` is an interactive Docker cleanup helper. It intentionally does **not** use `--volumes`.
+
+Cleanup warning:
+
+```text
+vast_cleanup should only run when the machine is idle/unlisted and you are sure no customer data must be preserved.
+```
+
+### Burn/stress tests
+
+```bash
+cpu_burn 60
+sudo ram_burn 60
+gpu_burn -tc -m 100% 60
+full_burn 7200
+sudo rig-burn-cleanup
+```
+
+- `60` means seconds.
+- Use `7200` for a 2-hour full burn-in.
+- `full_burn` runs RAM + CPU + GPU together.
+- logs are written under `~/burn-logs/`.
+- `rig-burn-cleanup` kills stuck burn/stress-test leftovers.
+
+### Vast CLI sanity checks
+
+After setting your API key:
+
+```bash
+vastai --help
+vastai set api-key YOUR_API_KEY
+vastai show user
+vastai show machines
+vastai self-test machine YOUR_MACHINE_ID
+vastai self-test machine YOUR_MACHINE_ID --ignore-requirements
+```
+
+More Vast CLI examples:
+
+<https://docs.vast.ai/cli/hello-world>
+
+---
+
+## Existing Ubuntu rig installer
+
+For rigs that are **already installed and running Ubuntu**, you do not need the ISO.
+
+Use the public helper installer to add the same Phase 3-style summary, validation tools, port helpers, burn tools, and host-polish commands:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
@@ -273,53 +438,31 @@ Then run:
 vast_install_summary
 ```
 
-This one installer also adds the local burn tools (`cpu_burn`, `memtester`, `gpu_burn`, and `full_burn 7200`) so existing rigs get the same whole-machine RAM + CPU + GPU burn flow as the ISO install. If gpu-burn ever needs repair, run `sudo vast_install_gpu_burn`.
+This adds:
+
+- `vast_install_summary`
+- `storage_layout`
+- `sudo vast_ready_check`
+- `sudo disk_health`
+- `sudo vast_system_update`
+- `sudo vast_cleanup`
+- `sudo vast_port_range` / `sudo vast_port_check`
+- `cpu_burn`
+- `ram_burn`
+- `gpu_burn`
+- `full_burn`
+- `sudo rig-burn-cleanup`
+- `rig-monitor` when available/installed
+
+If gpu-burn ever needs repair:
+
+```bash
+sudo vast_install_gpu_burn
+```
 
 This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
 
 Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
-
-#### Host readiness and diagnostic tools
-
-The installer saves the final Phase 3 report and also adds small operator commands for final checks:
-
-```bash
-vast_install_summary
-storage_layout
-sudo vast_ready_check
-```
-
-`vast_install_summary` reopens the saved Phase 3 complete report, including what was done, quick tests, and next commands.
-
-Useful Vast CLI sanity commands after setting an API key:
-
-```bash
-vastai --help
-vastai show user
-vastai show machines
-vastai self-test machine YOUR_MACHINE_ID
-```
-
-`storage_layout` shows a clean disk/partition/mount/usage overview, including Docker XFS/prjquota status.
-
-`sudo vast_system_update` updates apt packages, kernels and Ubuntu/NVIDIA driver packages. Only run it when the machine is idle/unlisted because a reboot may be required.
-
-`sudo vast_ready_check` checks Docker, NVIDIA, Vast services, `/var/lib/docker` XFS/prjquota, Secure Boot state, GPU PCIe link info, and runs a network speed test when available.
-
-```bash
-storage_layout
-sudo disk_health
-sudo docker system df
-sudo vast_system_update
-```
-
-Shows disk layout, filesystem usage, and NVMe/SMART health summaries.
-
-```bash
-sudo vast_cleanup
-```
-
-Interactive Docker cleanup helper for pruning unused containers/images/build cache. Only run when the machine is idle/unlisted and you are sure no customer data must be preserved.
 
 ---
 
@@ -389,8 +532,9 @@ Phase 3:
 - verifies Docker
 - verifies NVIDIA inside Docker
 - verifies Vast services
-- installs optional Vast CLI, rig-monitor, Fleet Health Check prereqs, GPU fan control, gpu-burn, and CPU burn
-- prints a final install report
+- installs optional Vast CLI, rig-monitor, Fleet Health Check prereqs, GPU fan control, gpu-burn, and CPU/RAM burn tools
+- saves the final summary to `/var/lib/vast-host-installer/final-summary.txt`
+- prints the final polished install report
 
 When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
 
@@ -432,15 +576,6 @@ Run rig monitor after setup:
 
 ```bash
 rig-monitor
-```
-
-Test Vast CLI after setup:
-
-```bash
-vastai set api-key YOUR_API_KEY
-vastai show machines
-vastai self-test machine YOUR_MACHINE_ID
-vastai self-test machine YOUR_MACHINE_ID --ignore-requirements
 ```
 
 ---
@@ -512,11 +647,21 @@ It does **not** fully undo:
 ## Repo structure
 
 - `install/` — installer engine and phase logic
-- `scripts/` — build, ISO, reset, and helper scripts
+- `scripts/` — build, ISO, reset, and existing-rig helper scripts
 - `autoinstall/` — Ubuntu autoinstall scaffolding
 - `iso/` — ISO scaffold/build notes; generated ISO artifacts are ignored by git
 - `docs/` — design notes and architecture docs
 - `systemd/` — first-run notice/auto-resume units
+
+---
+
+## Security notes
+
+- Do not bake API keys, SSH private keys, or personal passwords into public ISOs.
+- Anyone with an ISO can extract and inspect the installer payload.
+- Use a fresh Vast.ai host install command for every machine/install attempt.
+- The source repo does not track generated `iso/nocloud/user-data` or bootstrap password files.
+- Generated ISO files are intentionally ignored by git and should be published as GitHub Release assets.
 
 ---
 
@@ -542,7 +687,12 @@ Implemented:
 - Fleet Health Check prerequisites optional install
 - aggressive Vast.ai GPU fan control optional install
 - gpu-burn optional install for post-setup GPU stress testing
-- CPU burn optional install for post-setup CPU stress testing
+- stressapptest RAM burn with `--pause_delay 999999`
+- CPU burn and full-system burn tools
+- stuck burn cleanup helper
+- Vast port range helpers
+- system update and safe cleanup helpers
+- existing Ubuntu rig host-tools installer
 - final human-readable install report
 
 Still planned:

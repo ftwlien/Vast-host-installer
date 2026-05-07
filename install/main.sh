@@ -423,12 +423,12 @@ if [[ "$INSTALL_EXTRAS_MODE" -eq 1 ]]; then
     extras_done_lines+=("GPU burn: gpu_burn -tc -m 100% 60")
   fi
   if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
-    extras_done_lines+=("CPU/RAM burn: cpu_burn 60 and memtester 60")
+    extras_done_lines+=("CPU/RAM burn: cpu_burn 60 and sudo ram_burn 60")
   fi
   if command -v full_burn >/dev/null 2>&1; then
     extras_done_lines+=("Full burn: full_burn 7200 logs to ~/burn-logs")
   fi
-  extras_done_lines+=("Readiness tools: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_system_update, sudo vast_cleanup")
+  extras_done_lines+=("Readiness tools: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_system_update, sudo vast_cleanup, sudo rig-burn-cleanup")
 
   success_banner "OPTIONAL EXTRAS COMPLETE"
   install_report_box "What was installed" "${extras_done_lines[@]}"
@@ -533,36 +533,43 @@ fi
 if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
   phase3_done_lines+=("Aggressive Vast.ai GPU fan control installed and enabled")
 fi
-if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
-  phase3_done_lines+=("gpu-burn stress-test tool installed with /usr/local/bin/gpu_burn wrapper")
-fi
+burn_cmds=()
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
-  phase3_done_lines+=("CPU/RAM burn stress-test tools installed with /usr/local/bin/cpu_burn and /usr/local/bin/memtester wrappers")
+  burn_cmds+=("cpu_burn" "ram_burn")
+fi
+if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
+  burn_cmds+=("gpu_burn")
 fi
 if command -v full_burn >/dev/null 2>&1; then
-  phase3_done_lines+=("Full CPU+GPU+RAM burn command installed with /usr/local/bin/full_burn wrapper and ~/burn-logs output")
+  burn_cmds+=("full_burn")
 fi
-phase3_done_lines+=("Host polish commands installed: storage_layout, sudo vast_ready_check, sudo disk_health, sudo vast_system_update, sudo vast_cleanup")
+if (( ${#burn_cmds[@]} > 0 )); then
+  joined="${burn_cmds[*]}"
+  phase3_done_lines+=("Stress-test commands installed: ${joined// /, }")
+fi
+phase3_done_lines+=("Host polish commands installed")
+
+host_polish_lines=(
+  "storage_layout - Show disk layout and Docker storage"
+  "sudo vast_ready_check - Full Vast host readiness check"
+  "sudo disk_health - Disk health and filesystem check"
+  "sudo docker system df - Docker disk usage"
+  "sudo vast_system_update - Safe system update helper"
+  "sudo vast_cleanup - Clean idle/unlisted host leftovers"
+  "sudo vast_port_check - Verify Vast host ports"
+  "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
+)
 
 stress_test_lines=()
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("cpu_burn 60")
-  stress_test_lines+=("memtester 60")
+  stress_test_lines+=("sudo ram_burn 60")
 fi
 if [[ "$WITH_GPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("gpu_burn -tc -m 100% 60")
 fi
 if command -v full_burn >/dev/null 2>&1; then
-  stress_test_lines+=("full_burn 7200")
-stress_test_lines+=("Full burn tests the whole machine: RAM + CPU + GPU together")
-fi
-stress_test_lines+=("storage_layout")
-stress_test_lines+=("sudo vast_ready_check")
-stress_test_lines+=("sudo disk_health")
-stress_test_lines+=("sudo docker system df")
-stress_test_lines+=("sudo vast_system_update")
-if [[ "$WITH_RIG_MONITOR" -eq 1 ]]; then
-  stress_test_lines+=("rig-monitor")
+  stress_test_lines+=("full_burn 7200 - Full burn: RAM + CPU + GPU together")
 fi
 if [[ "$WITH_CPU_BURN" -eq 1 || "$WITH_GPU_BURN" -eq 1 ]]; then
   stress_test_lines+=("Tip: 60 = seconds. Use 7200 for a 2-hour burn-in.")
@@ -580,8 +587,19 @@ summary_tmp="$(mktemp)"
     echo "✓ $line"
   done
   echo
+  echo "Vast.ai host port range"
+  echo "✓ Current: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+  echo "✓ Show current: cat /var/lib/vastai_kaalia/host_port_range"
+  echo "✓ Change only if needed: sudo vast_port_range START-END"
+  echo "✓ Check: sudo vast_port_check"
+  echo
   echo "Quick stress-test commands"
   for line in "${stress_test_lines[@]}"; do
+    echo "✓ $line"
+  done
+  echo
+  echo "Useful host polish commands"
+  for line in "${host_polish_lines[@]}"; do
     echo "✓ $line"
   done
   if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
@@ -608,7 +626,106 @@ if [[ ! -r "$summary_file" ]]; then
   echo "Finish Phase 3 first, then run vast_install_summary again." >&2
   exit 1
 fi
-cat "$summary_file"
+
+if [[ -t 1 ]]; then
+  printf '\033[H\033[2J\033[3J'
+  C_RESET='\033[0m'; C_BOLD='\033[1m'; C_GREEN='\033[1;32m'; C_SKY='\033[1;38;5;45m'; C_GRAY='\033[1;38;5;244m'; C_WHITE='\033[1;37m'
+else
+  C_RESET=''; C_BOLD=''; C_GREEN=''; C_SKY=''; C_GRAY=''; C_WHITE=''
+fi
+
+_box_line() { local c="$1" n="$2" out=""; while [[ ${#out} -lt "$n" ]]; do out+="$c"; done; printf '%s' "$out"; }
+hero_banner() {
+  printf '\n%b' "$C_SKY$C_BOLD"
+  cat <<'BANNER'
+██╗   ██╗ █████╗ ███████╗████████╗    ██╗  ██╗ ██████╗ ███████╗████████╗
+██║   ██║██╔══██╗██╔════╝╚══██╔══╝    ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝
+██║   ██║███████║███████╗   ██║       ███████║██║   ██║███████╗   ██║
+╚██╗ ██╔╝██╔══██║╚════██║   ██║       ██╔══██║██║   ██║╚════██║   ██║
+ ╚████╔╝ ██║  ██║███████║   ██║       ██║  ██║╚██████╔╝███████║   ██║
+  ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝
+BANNER
+  printf '%b' "$C_RESET"
+  printf '%bFast RAM ISO · Ubuntu 22.04 · NVIDIA Open Driver · Vast.ai Host Setup%b\n\n' "$C_SKY$C_BOLD" "$C_RESET"
+}
+success_banner() {
+  local title="$*" width=84 left right
+  left=$(( (width - ${#title}) / 2 )); right=$(( width - left - ${#title} ))
+  printf '\n%b╭%s╮%b\n' "$C_GREEN$C_BOLD" "$(_box_line '═' "$width")" "$C_RESET"
+  printf '%b│%*s│%b\n' "$C_GREEN$C_BOLD" "$width" "" "$C_RESET"
+  printf '%b│%b%*s%b%s%b%*s%b│%b\n' "$C_GREEN$C_BOLD" "$C_RESET" "$left" "" "$C_GREEN$C_BOLD" "$title" "$C_RESET" "$right" "" "$C_GREEN$C_BOLD" "$C_RESET"
+  printf '%b│%*s│%b\n' "$C_GREEN$C_BOLD" "$width" "" "$C_RESET"
+  printf '%b╰%s╯%b\n' "$C_GREEN$C_BOLD" "$(_box_line '═' "$width")" "$C_RESET"
+}
+install_report_box() {
+  local title="$1"; shift || true
+  local width=84 inner line prefix wrapped chunk
+  inner=$((width - 4))
+  printf '\n%b╭─ %s ' "$C_SKY$C_BOLD" "$title"
+  local used=$(( ${#title} + 4 ))
+  printf '%s╮%b\n' "$(_box_line '─' $(( width - used )))" "$C_RESET"
+  if [[ "$#" -eq 0 ]]; then
+    printf '%b│%b %-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GRAY" "$inner" "No entries" "$C_SKY$C_BOLD" "$C_RESET"
+  else
+    for line in "$@"; do
+      prefix="✓ "
+      wrapped="$line"
+      while true; do
+        local available=$((inner - ${#prefix}))
+        if [[ ${#wrapped} -le $available ]]; then
+          printf '%b│%b %s%b%-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GREEN" "$prefix" "$C_WHITE$C_BOLD" "$available" "$wrapped" "$C_SKY$C_BOLD" "$C_RESET"
+          break
+        fi
+        chunk="${wrapped:0:$available}"
+        if [[ "$chunk" == *" "* ]]; then
+          chunk="${chunk% *}"
+          [[ -n "$chunk" ]] || chunk="${wrapped:0:$available}"
+        fi
+        printf '%b│%b %s%b%-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GREEN" "$prefix" "$C_WHITE$C_BOLD" "$available" "$chunk" "$C_SKY$C_BOLD" "$C_RESET"
+        wrapped="${wrapped:${#chunk}}"
+        wrapped="${wrapped# }"
+        prefix="  "
+      done
+    done
+  fi
+  printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
+}
+
+done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cli_lines=(); section=""
+while IFS= read -r line; do
+  case "$line" in
+    "What was done - full install report") section="done"; continue ;;
+    "Vast.ai host port range") section="port"; continue ;;
+    "Quick stress-test commands") section="quick"; continue ;;
+    "Useful host polish commands") section="polish"; continue ;;
+    "Optional next steps - Vast CLI") section="cli"; continue ;;
+    "VAST HOST - "*|"Generated: "*|"") continue ;;
+  esac
+  line="${line#✓ }"
+  case "$section" in
+    done) done_lines+=("$line") ;;
+    port) port_lines+=("$line") ;;
+    quick) quick_lines+=("$line") ;;
+    polish) polish_lines+=("$line") ;;
+    cli) cli_lines+=("$line") ;;
+  esac
+done < "$summary_file"
+
+hero_banner
+success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
+install_report_box "What was done - full install report" "${done_lines[@]}"
+if [[ "${#port_lines[@]}" -gt 0 ]]; then
+  install_report_box "Vast.ai host port range" "${port_lines[@]}"
+fi
+if [[ "${#quick_lines[@]}" -gt 0 ]]; then
+  install_report_box "Quick stress-test commands" "${quick_lines[@]}"
+fi
+if [[ "${#polish_lines[@]}" -gt 0 ]]; then
+  install_report_box "Useful host polish commands" "${polish_lines[@]}"
+fi
+if [[ "${#cli_lines[@]}" -gt 0 ]]; then
+  install_report_box "Optional next steps - Vast CLI" "${cli_lines[@]}"
+fi
 EOF
 sudo chmod 0755 "$summary_cmd"
 sudo bash -n "$summary_cmd"
@@ -616,9 +733,12 @@ sudo bash -n "$summary_cmd"
 hero_banner
 success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
+port_lines=("Current: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)" "Show current: cat /var/lib/vastai_kaalia/host_port_range" "Change only if needed: sudo vast_port_range START-END" "Check: sudo vast_port_check")
+install_report_box "Vast.ai host port range" "${port_lines[@]}"
 if [[ "${#stress_test_lines[@]}" -gt 0 ]]; then
   install_report_box "Quick stress-test commands" "${stress_test_lines[@]}"
 fi
+install_report_box "Useful host polish commands" "${host_polish_lines[@]}"
 install_report_box "Show this screen again" "vast_install_summary"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."

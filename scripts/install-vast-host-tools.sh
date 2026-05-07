@@ -15,9 +15,11 @@ Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - vast_cleanup
 - vast_system_update
 - cpu_burn
-- memtester wrapper
+- ram_burn stressapptest RAM burn wrapper
 - gpu_burn
 - full_burn 7200 whole-machine RAM + CPU + GPU burn test
+- rig-burn-cleanup stuck burn-test cleanup command
+- vast_port_range / vast_port_check Vast.ai host port helpers
 EOF
       exit 0
       ;;
@@ -40,7 +42,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil
   apt-get install -y speedtest-cli || true
-  apt-get install -y stress-ng memtester memtest86+ git build-essential nvidia-cuda-toolkit
+  apt-get install -y stress-ng stressapptest memtest86+ git build-essential nvidia-cuda-toolkit
 fi
 
 cat >/usr/local/bin/storage_layout <<'SCRIPT'
@@ -332,32 +334,99 @@ exec stress-ng --cpu 0 --cpu-method matrixprod --verify --metrics-brief --timeou
 SCRIPT
 chmod 0755 /usr/local/bin/cpu_burn
 
-cat >/usr/local/bin/memtester <<'SCRIPT'
+cat >/usr/local/bin/ram_burn <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 seconds="${1:-60}"
-case "$seconds" in ''|*[!0-9]*) echo "Usage: memtester [seconds]" >&2; echo "Example: memtester 60" >&2; exit 2;; esac
-memory_mb="${MEMTESTER_MB:-}"
-if [[ -z "$memory_mb" ]]; then
-  available_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
-  memory_mb=$(( available_mb * 80 / 100 ))
-fi
-(( memory_mb >= 64 )) || { echo "Not enough available memory for memtester (${memory_mb}M calculated)" >&2; exit 1; }
-real_memtester="/usr/sbin/memtester"
-if [[ ! -x "$real_memtester" ]]; then
-  real_memtester="/sbin/memtester"
-fi
-if [[ ! -x "$real_memtester" ]]; then
-  echo "memtester package binary not found at /usr/sbin/memtester or /sbin/memtester" >&2
+case "$seconds" in ''|*[!0-9]*) echo "Usage: ram_burn [seconds]" >&2; echo "Example: ram_burn 7200" >&2; exit 2;; esac
+if ! command -v stressapptest >/dev/null 2>&1; then
+  echo "stressapptest command not found. Install package: sudo apt-get install -y stressapptest" >&2
   exit 1
 fi
+# stressapptest works best with enough privilege to lock/hammer memory consistently.
+if [[ "${EUID:-$(id -u)}" -ne 0 && "${RAM_BURN_ALLOW_USER:-0}" != "1" ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+total_mb="$(awk '/MemTotal:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+available_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+reserve_mb="${RAM_BURN_RESERVE_MB:-8192}"
+percent="${RAM_BURN_PERCENT:-90}"
+case "$reserve_mb" in ''|*[!0-9]*) echo "RAM_BURN_RESERVE_MB must be a number" >&2; exit 2;; esac
+case "$percent" in ''|*[!0-9]*) echo "RAM_BURN_PERCENT must be a number" >&2; exit 2;; esac
+if [[ -n "${RAM_BURN_MB:-}" ]]; then
+  memory_mb="$RAM_BURN_MB"
+elif [[ -n "${STRESSAPPTEST_MB:-}" ]]; then
+  memory_mb="$STRESSAPPTEST_MB"
+else
+  percent_target=$(( total_mb * percent / 100 ))
+  available_target=$(( available_mb - reserve_mb ))
+  if (( percent_target < available_target )); then
+    memory_mb=$percent_target
+  else
+    memory_mb=$available_target
+  fi
+fi
+max_mb=$(( available_mb - 2048 ))
+if (( memory_mb > max_mb )); then
+  memory_mb=$max_mb
+fi
+if (( memory_mb < 1024 )); then
+  echo "Not enough available memory for ram_burn (${memory_mb}M calculated; total=${total_mb}M available=${available_mb}M reserve=${reserve_mb}M)" >&2
+  exit 1
+fi
+memory_gib="$(awk -v mb="$memory_mb" 'BEGIN {printf "%.1f", mb/1024}')"
+log_dir="${RAM_BURN_LOG_DIR:-${SUDO_USER:+/home/$SUDO_USER}/burn-logs}"
+if [[ -z "$log_dir" || "$log_dir" == "/burn-logs" ]]; then
+  log_dir="${HOME}/burn-logs"
+fi
+mkdir -p "$log_dir"
+if [[ -n "${SUDO_USER:-}" && -d "/home/$SUDO_USER" ]]; then
+  chown "$SUDO_USER:$SUDO_USER" "$log_dir" 2>/dev/null || true
+fi
+log_file="$log_dir/ram_burn-$(date +%Y%m%d-%H%M%S).log"
+
+echo "ram_burn log: $log_file"
+echo "Starting stressapptest RAM burn for ${seconds}s using ${memory_mb}M (${memory_gib}GiB)"
+echo "Auto sizing: total=${total_mb}M available=${available_mb}M reserve=${reserve_mb}M percent=${percent}%"
+echo "Command: stressapptest -W -s ${seconds} -M ${memory_mb} --pause_delay 999999"
+
+stressapptest -W -s "$seconds" -M "$memory_mb" --pause_delay 999999 >"$log_file" 2>&1 &
+sap_pid=$!
+cleanup() { kill "$sap_pid" >/dev/null 2>&1 || true; wait "$sap_pid" >/dev/null 2>&1 || true; }
+trap 'cleanup; exit 130' INT TERM
+last_report=-10
 status=0
-timeout --foreground "${seconds}s" "$real_memtester" "${memory_mb}M" 1 || status=$?
-if [[ "$status" -eq 124 ]]; then
-  echo "memtester timed test completed after ${seconds}s"
+while kill -0 "$sap_pid" >/dev/null 2>&1; do
+  elapsed="$(ps -o etimes= -p "$sap_pid" 2>/dev/null | tr -d ' ' || echo 0)"
+  elapsed="${elapsed:-0}"
+  if (( elapsed - last_report >= 10 )); then
+    rss_kb="$(awk '/VmRSS:/ {print $2}' "/proc/${sap_pid}/status" 2>/dev/null || echo 0)"
+    rss_gib="$(awk -v kb="${rss_kb:-0}" 'BEGIN {printf "%.1f", kb/1024/1024}')"
+    echo "RAM used by stressapptest: ${rss_gib}GiB / ${memory_gib}GiB target (${elapsed}s elapsed)"
+    last_report=$elapsed
+  fi
+  sleep 2
+done
+wait "$sap_pid" || status=$?
+trap - INT TERM
+if [[ "$status" -eq 0 ]]; then
+  echo "ram_burn completed successfully"
+  echo "Log saved to: $log_file"
   exit 0
 fi
+
+echo "ram_burn failed with exit code ${status}" >&2
+echo "Last log lines:" >&2
+tail -n 60 "$log_file" >&2 || true
 exit "$status"
+SCRIPT
+chmod 0755 /usr/local/bin/ram_burn
+# Compatibility shim: old command name now runs stressapptest-backed RAM burn.
+cat >/usr/local/bin/memtester <<'SCRIPT'
+#!/usr/bin/env bash
+exec /usr/local/bin/ram_burn "$@"
 SCRIPT
 chmod 0755 /usr/local/bin/memtester
 
@@ -378,7 +447,7 @@ fi
 export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  apt-get install -y git build-essential nvidia-cuda-toolkit stress-ng memtester memtest86+
+  apt-get install -y git build-essential nvidia-cuda-toolkit stress-ng stressapptest memtest86+
 fi
 
 workdir="/tmp/gpu-burn-build"
@@ -398,9 +467,25 @@ cat >/usr/local/bin/gpu_burn <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$install_dir"
+args=("\$@")
+last="\${args[-1]:-}"
+if [[ "\$last" =~ ^[0-9]+$ ]] && command -v timeout >/dev/null 2>&1; then
+  grace="\${GPU_BURN_TIMEOUT_GRACE:-30}"
+  case "\$grace" in ''|*[!0-9]*) grace=30 ;; esac
+  set +e
+  timeout --kill-after=10s "\$((last + grace))s" "$install_dir/gpu_burn" "\$@"
+  status="\$?"
+  set -e
+  if [[ "\$status" -eq 124 ]]; then
+    echo "gpu_burn duration \${last}s reached; stopped after \${grace}s grace"
+    exit 0
+  fi
+  exit "\$status"
+fi
 exec "$install_dir/gpu_burn" "\$@"
 EOF
 chmod 0755 /usr/local/bin/gpu_burn
+
 
 if command -v cpu_burn >/dev/null 2>&1; then
   cat >/usr/local/bin/full_burn <<'EOF'
@@ -414,13 +499,21 @@ log_file="$log_dir/full_burn-$(date +%Y%m%d-%H%M%S).log"
 exec > >(tee -a "$log_file") 2>&1
 echo "full_burn log: $log_file"
 echo "Starting CPU + GPU + RAM burn for ${seconds}s"
+echo "RAM target defaults: FULL_BURN_RAM_PERCENT=${FULL_BURN_RAM_PERCENT:-90}, FULL_BURN_RAM_RESERVE_MB=${FULL_BURN_RAM_RESERVE_MB:-8192}"
 cpu_burn "$seconds" & cpu_pid=$!
 gpu_burn -tc -m 100% "$seconds" & gpu_pid=$!
 ram_pressure_pid=""
-if command -v stress-ng >/dev/null 2>&1; then
-  stress-ng --vm 0 --vm-bytes 50% --verify --metrics-brief --timeout "${seconds}s" & ram_pressure_pid=$!
+if command -v ram_burn >/dev/null 2>&1; then
+  sudo RAM_BURN_PERCENT="${FULL_BURN_RAM_PERCENT:-90}" RAM_BURN_RESERVE_MB="${FULL_BURN_RAM_RESERVE_MB:-8192}" ram_burn "$seconds" & ram_pressure_pid=$!
+else
+  echo "ram_burn not found; running CPU + GPU only" >&2
 fi
-cleanup() { kill "$cpu_pid" "$gpu_pid" ${ram_pressure_pid:+"$ram_pressure_pid"} >/dev/null 2>&1 || true; }
+cleanup() {
+  kill "$cpu_pid" "$gpu_pid" ${ram_pressure_pid:+"$ram_pressure_pid"} >/dev/null 2>&1 || true
+  wait "$cpu_pid" >/dev/null 2>&1 || true
+  wait "$gpu_pid" >/dev/null 2>&1 || true
+  [[ -n "$ram_pressure_pid" ]] && wait "$ram_pressure_pid" >/dev/null 2>&1 || true
+}
 trap 'cleanup; exit 130' INT TERM
 cpu_status=0; gpu_status=0; ram_status=0
 wait "$cpu_pid" || cpu_status=$?
@@ -449,27 +542,285 @@ if ! command -v gpu_burn >/dev/null 2>&1 || [[ ! -x /usr/local/bin/full_burn ]];
   /usr/local/bin/vast_install_gpu_burn
 fi
 
+# Always refresh full_burn so wrapper logic updates without rebuilding gpu-burn.
+if command -v gpu_burn >/dev/null 2>&1 && command -v cpu_burn >/dev/null 2>&1; then
+  cat >/usr/local/bin/full_burn <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+seconds="${1:-7200}"
+case "$seconds" in ''|*[!0-9]*) echo "Usage: full_burn [seconds]" >&2; echo "Example: full_burn 7200" >&2; exit 2;; esac
+log_dir="${FULL_BURN_LOG_DIR:-$HOME/burn-logs}"
+mkdir -p "$log_dir"
+log_file="$log_dir/full_burn-$(date +%Y%m%d-%H%M%S).log"
+exec > >(tee -a "$log_file") 2>&1
+echo "full_burn log: $log_file"
+echo "Starting CPU + GPU + RAM burn for ${seconds}s"
+echo "RAM target defaults: FULL_BURN_RAM_PERCENT=${FULL_BURN_RAM_PERCENT:-90}, FULL_BURN_RAM_RESERVE_MB=${FULL_BURN_RAM_RESERVE_MB:-8192}"
+cpu_burn "$seconds" & cpu_pid=$!
+gpu_burn -tc -m 100% "$seconds" & gpu_pid=$!
+ram_pressure_pid=""
+if command -v ram_burn >/dev/null 2>&1; then
+  sudo RAM_BURN_PERCENT="${FULL_BURN_RAM_PERCENT:-90}" RAM_BURN_RESERVE_MB="${FULL_BURN_RAM_RESERVE_MB:-8192}" ram_burn "$seconds" & ram_pressure_pid=$!
+else
+  echo "ram_burn not found; running CPU + GPU only" >&2
+fi
+cleanup() {
+  kill "$cpu_pid" "$gpu_pid" ${ram_pressure_pid:+"$ram_pressure_pid"} >/dev/null 2>&1 || true
+  wait "$cpu_pid" >/dev/null 2>&1 || true
+  wait "$gpu_pid" >/dev/null 2>&1 || true
+  [[ -n "$ram_pressure_pid" ]] && wait "$ram_pressure_pid" >/dev/null 2>&1 || true
+}
+trap 'cleanup; exit 130' INT TERM
+cpu_status=0; gpu_status=0; ram_status=0
+wait "$cpu_pid" || cpu_status=$?
+wait "$gpu_pid" || gpu_status=$?
+[[ -n "$ram_pressure_pid" ]] && wait "$ram_pressure_pid" || ram_status=$?
+if [[ "$cpu_status" -ne 0 || "$gpu_status" -ne 0 || "$ram_status" -ne 0 ]]; then
+  echo "full_burn finished with errors: cpu=${cpu_status}, gpu=${gpu_status}, ram=${ram_status}" >&2
+  exit 1
+fi
+echo "full_burn completed successfully"
+echo "Log saved to: $log_file"
+EOF
+  chmod 0755 /usr/local/bin/full_burn
+fi
+
+cat >/usr/local/bin/vast_port_range <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+range="${1:-}"
+if [[ -z "$range" ]]; then
+  echo "Current range: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+  echo "Usage to change: sudo vast_port_range START-END" >&2
+  echo "Example: sudo vast_port_range 63401-63800" >&2
+  exit 0
+fi
+case "$range" in
+  *-*) ;;
+  *) echo "Usage: sudo vast_port_range [START-END]" >&2; echo "Example: sudo vast_port_range 63401-63800" >&2; exit 2 ;;
+esac
+start="${range%-*}"; end="${range#*-}"
+case "$start$end" in *[!0-9]*|'') echo "Invalid range: $range" >&2; exit 2 ;; esac
+if (( start < 1 || end > 65535 || start > end )); then echo "Invalid TCP/UDP port range: $range" >&2; exit 2; fi
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then echo "Re-running with sudo..."; exec sudo "$0" "$@"; fi
+install -d -m 0755 /var/lib/vastai_kaalia
+printf '%s\n' "$range" > /var/lib/vastai_kaalia/host_port_range
+chmod 0644 /var/lib/vastai_kaalia/host_port_range
+echo "Vast.ai host port range set to: $(cat /var/lib/vastai_kaalia/host_port_range)"
+echo
+echo "What this is:"
+echo "  Vast.ai uses /var/lib/vastai_kaalia/host_port_range to know which host ports"
+echo "  it may assign/map to rented containers for services like SSH, web UIs, APIs, etc."
+echo "  Example: 63401-63800 gives Vast 400 host ports to allocate."
+echo
+echo "Next check: sudo vast_port_check"
+SCRIPT
+chmod 0755 /usr/local/bin/vast_port_range
+
+cat >/usr/local/bin/vast_port_check <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+range_file="/var/lib/vastai_kaalia/host_port_range"
+if [[ ! -f "$range_file" ]]; then
+  echo "Missing $range_file"
+  echo "Fix: set your intended range, for example: sudo vast_port_range 63401-63800"
+  exit 1
+fi
+range="$(tr -d '[:space:]' < "$range_file")"
+start="${range%-*}"; end="${range#*-}"
+case "$range" in *-*) ;; *) echo "Invalid range in $range_file: $range" >&2; exit 1 ;; esac
+case "$start$end" in *[!0-9]*|'') echo "Invalid range in $range_file: $range" >&2; exit 1 ;; esac
+if (( start < 1 || end > 65535 || start > end )); then echo "Invalid TCP/UDP port range in $range_file: $range" >&2; exit 1; fi
+echo "== Vast.ai host port range =="
+echo "$range_file: $range"
+echo "Ports: $(( end - start + 1 ))"
+echo
+echo "What this means: Vast may map rented container services onto these host ports."
+echo "Important: ports normally only show LISTEN/open when a container is actively using them."
+echo "This local checker verifies the setting and local firewall/listeners; true external reachability"
+echo "still depends on router/provider/firewall/public IP path."
+echo
+echo "== Public IP guess =="
+(curl -fsS --max-time 4 https://api.ipify.org || curl -fsS --max-time 4 https://ifconfig.me || true) | sed 's/^/Public IP: /'
+echo
+echo "== Current listeners inside range =="
+if command -v ss >/dev/null 2>&1; then
+  ss -H -ltnup 2>/dev/null | awk -v s="$start" -v e="$end" '{ local=$5; n=split(local,a,":"); p=a[n]; gsub(/[^0-9]/,"",p); if (p >= s && p <= e) print }' || true
+else
+  echo "ss command not found"
+fi
+echo
+echo "== Local port state summary =="
+listening=0
+for ((p=start; p<=end; p++)); do
+  if ss -H -ltn "sport = :$p" 2>/dev/null | grep -q . || ss -H -lun "sport = :$p" 2>/dev/null | grep -q .; then
+    echo "LISTEN local :$p"; listening=$((listening + 1))
+  fi
+done
+if (( listening == 0 )); then echo "No ports in $range are listening right now. That is normal before a Vast container maps one."; fi
+echo
+echo "== Firewall hints =="
+if command -v ufw >/dev/null 2>&1; then
+  ufw_status="$(ufw status 2>/dev/null || true)"; echo "$ufw_status" | sed -n '1,12p'
+  if echo "$ufw_status" | grep -qi '^Status: active'; then
+    if echo "$ufw_status" | grep -Eq "${start}:${end}|${start}-${end}|${start}"; then echo "UFW appears to mention this range."; else echo "WARNING: UFW is active and no obvious rule for $range was found."; echo "Possible fix if you use UFW: sudo ufw allow ${start}:${end}/tcp && sudo ufw allow ${start}:${end}/udp"; fi
+  else echo "UFW is not active."; fi
+else echo "ufw not installed."; fi
+echo
+echo "== Result =="
+echo "✓ Vast host port range file is valid: $range"
+echo "Run this after a rented container starts if you want to see which ports are actually listening."
+SCRIPT
+chmod 0755 /usr/local/bin/vast_port_check
+
+# Do not overwrite an existing Vast.ai port range automatically.
+# Operators can change it explicitly with: sudo vast_port_range START-END
+
+# Install rig-monitor for the operator user if it is not already present.
+install_rig_monitor_for_operator() {
+  local target_user target_home repo_dir
+  target_user="${SUDO_USER:-}"
+  if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+    target_user="$(logname 2>/dev/null || true)"
+  fi
+  if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+    target_user="$(awk -F: '$3 >= 1000 && $1 != "nobody" {print $1; exit}' /etc/passwd)"
+  fi
+  [[ -n "$target_user" ]] || return 0
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+  [[ -n "$target_home" && -d "$target_home" ]] || return 0
+  repo_dir="$target_home/rig-monitor"
+
+  if [[ -d "$repo_dir/.git" ]]; then
+    sudo -H -u "$target_user" git -C "$repo_dir" pull --ff-only || true
+  elif [[ ! -d "$repo_dir" ]]; then
+    sudo -H -u "$target_user" git clone https://github.com/ftwlien/rig-monitor.git "$repo_dir" || return 0
+  fi
+
+  if [[ -x "$repo_dir/scripts/install.sh" ]]; then
+    sudo -H -u "$target_user" bash "$repo_dir/scripts/install.sh" || true
+  fi
+}
+if ! command -v rig-monitor >/dev/null 2>&1; then
+  install_rig_monitor_for_operator
+fi
+
+cat >/usr/local/bin/rig-burn-cleanup <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then echo "Re-running with sudo..."; exec sudo "$0" "$@"; fi
+auto_yes=0
+case "${1:-}" in -y|--yes) auto_yes=1 ;; -h|--help) echo "Usage: sudo rig-burn-cleanup [--yes]"; exit 0 ;; "") ;; *) echo "Unknown option: $1" >&2; exit 2 ;; esac
+collect_pids() { ps -eo pid=,ppid=,stat=,comm=,args= | awk -v self="$$" -v parent="$PPID" 'function m(line) { return line ~ /\/usr\/local\/bin\/(full_burn|cpu_burn|ram_burn|memtester)/ || line ~ /(^|[[:space:]])(full_burn|cpu_burn|ram_burn)([[:space:]]|$)/ || line ~ /stressapptest/ || line ~ /\/opt\/gpu-burn\/gpu_burn/ || line ~ /gpu_burn -tc -m/ || line ~ /stress-ng .*--(cpu|vm)/ || line ~ /\/(usr\/sbin|sbin)\/memtester/ || line ~ /timeout .*memtester/ } { pid=$1; line=$0; if (pid==self || pid==parent) next; if (line ~ /rig-burn-cleanup/) next; if (m(line)) print pid; }' | sort -n -u; }
+print_matches() { ps -eo pid,ppid,stat,etimes,rss,vsz,comm,args | awk 'function m(line) { return line ~ /\/usr\/local\/bin\/(full_burn|cpu_burn|ram_burn|memtester)/ || line ~ /(^|[[:space:]])(full_burn|cpu_burn|ram_burn)([[:space:]]|$)/ || line ~ /stressapptest/ || line ~ /\/opt\/gpu-burn\/gpu_burn/ || line ~ /gpu_burn -tc -m/ || line ~ /stress-ng .*--(cpu|vm)/ || line ~ /\/(usr\/sbin|sbin)\/memtester/ || line ~ /timeout .*memtester/ } NR==1 || (m($0) && $0 !~ /rig-burn-cleanup/) { print }'; }
+mapfile -t pids < <(collect_pids)
+if (( ${#pids[@]} == 0 )); then echo "No burn/stress-test leftovers found."; exit 0; fi
+echo "Found burn/stress-test processes:"; print_matches; echo
+if (( auto_yes == 0 )); then read -r -p "Type KILL BURNS to terminate these processes: " answer; [[ "$answer" == "KILL BURNS" ]] || { echo "Cancelled."; exit 0; }; fi
+echo "Sending TERM to: ${pids[*]}"; kill "${pids[@]}" 2>/dev/null || true; sleep 2
+mapfile -t remaining < <(collect_pids)
+if (( ${#remaining[@]} > 0 )); then echo "Still present; sending KILL to: ${remaining[*]}"; kill -9 "${remaining[@]}" 2>/dev/null || true; sleep 2; fi
+mapfile -t final < <(collect_pids)
+if (( ${#final[@]} > 0 )); then echo "WARNING: some processes still remain:" >&2; print_matches >&2; exit 1; fi
+echo "Burn/stress-test cleanup complete."; free -h || true
+SCRIPT
+chmod 0755 /usr/local/bin/rig-burn-cleanup
+
+summary_file="/var/lib/vast-host-installer/final-summary.txt"
+install -d -m 0755 /var/lib/vast-host-installer
+burn_cmds=()
+command -v cpu_burn >/dev/null 2>&1 && burn_cmds+=("cpu_burn")
+command -v ram_burn >/dev/null 2>&1 && burn_cmds+=("ram_burn")
+command -v gpu_burn >/dev/null 2>&1 && burn_cmds+=("gpu_burn")
+command -v full_burn >/dev/null 2>&1 && burn_cmds+=("full_burn")
+quick=()
+command -v cpu_burn >/dev/null 2>&1 && quick+=("cpu_burn 60")
+command -v ram_burn >/dev/null 2>&1 && quick+=("sudo ram_burn 60")
+command -v gpu_burn >/dev/null 2>&1 && quick+=("gpu_burn -tc -m 100% 60")
+if command -v full_burn >/dev/null 2>&1; then
+  quick+=("full_burn 7200 - Full burn: RAM + CPU + GPU together")
+fi
+quick+=("Tip: 60 = seconds. Use 7200 for a 2-hour burn-in.")
+polish=(
+  "storage_layout - Show disk layout and Docker storage"
+  "sudo vast_ready_check - Full Vast host readiness check"
+  "sudo disk_health - Disk health and filesystem check"
+  "sudo docker system df - Docker disk usage"
+  "sudo vast_system_update - Safe system update helper"
+  "sudo vast_cleanup - Clean idle/unlisted host leftovers"
+  "sudo vast_port_check - Verify Vast host ports"
+  "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
+)
+command -v gpu_burn >/dev/null 2>&1 || polish+=("sudo vast_install_gpu_burn - Install/rebuild GPU burn tool")
+command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
+{
+  echo "VAST HOST - PHASE 3 COMPLETE - VAST SETUP FINISHED"
+  echo "Generated: $(date -Is)"
+  echo
+  echo "What was done - full install report"
+  if command -v rig-monitor >/dev/null 2>&1; then
+    echo "✓ rig-monitor command installed"
+  fi
+  if (( ${#burn_cmds[@]} > 0 )); then
+    joined="${burn_cmds[*]}"
+    echo "✓ Stress-test commands installed: ${joined// /, }"
+  else
+    echo "✓ Stress-test commands missing"
+    echo "✓ Install: curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash"
+  fi
+  echo "✓ Host polish commands installed"
+  echo
+  echo "Vast.ai host port range"
+  echo "✓ Current: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+  echo "✓ Show current: cat /var/lib/vastai_kaalia/host_port_range"
+  echo "✓ Change only if needed: sudo vast_port_range START-END"
+  echo "✓ Check: sudo vast_port_check"
+  echo
+  echo "Quick stress-test commands"
+  for line in "${quick[@]}"; do echo "✓ $line"; done
+  echo
+  echo "Useful host polish commands"
+  for line in "${polish[@]}"; do echo "✓ $line"; done
+  echo
+  echo "Optional next steps - Vast CLI"
+  echo "vastai --help"
+  echo "vastai set api-key YOUR_API_KEY"
+  echo "vastai show user"
+  echo "vastai show machines"
+  echo "vastai self-test machine YOUR_MACHINE_ID"
+  echo "vastai self-test machine YOUR_MACHINE_ID --ignore-requirements"
+  echo "More CLI examples: https://docs.vast.ai/cli/hello-world"
+} > "$summary_file"
+chmod 0644 "$summary_file"
+
 cat >/usr/local/bin/vast_install_summary <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
+summary_file="/var/lib/vast-host-installer/final-summary.txt"
+if [[ ! -r "$summary_file" ]]; then
+  echo "No final Vast Host install summary found at $summary_file" >&2
+  echo "Finish Phase 3 first, then run vast_install_summary again." >&2
+  exit 1
+fi
 
 if [[ -t 1 ]]; then
   printf '\033[H\033[2J\033[3J'
-  C_RESET='\033[0m'; C_BOLD='\033[1m'; C_GREEN='\033[1;32m'; C_SKY='\033[1;38;5;45m'; C_GRAY='\033[1;38;5;244m'
+  C_RESET='\033[0m'; C_BOLD='\033[1m'; C_GREEN='\033[1;32m'; C_SKY='\033[1;38;5;45m'; C_GRAY='\033[1;38;5;244m'; C_WHITE='\033[1;37m'
 else
-  C_RESET=''; C_BOLD=''; C_GREEN=''; C_SKY=''; C_GRAY=''
+  C_RESET=''; C_BOLD=''; C_GREEN=''; C_SKY=''; C_GRAY=''; C_WHITE=''
 fi
+
 _box_line() { local c="$1" n="$2" out=""; while [[ ${#out} -lt "$n" ]]; do out+="$c"; done; printf '%s' "$out"; }
 hero_banner() {
   printf '\n%b' "$C_SKY$C_BOLD"
-  cat <<'EOF'
+  cat <<'BANNER'
 ██╗   ██╗ █████╗ ███████╗████████╗    ██╗  ██╗ ██████╗ ███████╗████████╗
 ██║   ██║██╔══██╗██╔════╝╚══██╔══╝    ██║  ██║██╔═══██╗██╔════╝╚══██╔══╝
 ██║   ██║███████║███████╗   ██║       ███████║██║   ██║███████╗   ██║
 ╚██╗ ██╔╝██╔══██║╚════██║   ██║       ██╔══██║██║   ██║╚════██║   ██║
  ╚████╔╝ ██║  ██║███████║   ██║       ██║  ██║╚██████╔╝███████║   ██║
   ╚═══╝  ╚═╝  ╚═╝╚══════╝   ╚═╝       ╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝
-EOF
+BANNER
   printf '%b' "$C_RESET"
   printf '%bFast RAM ISO · Ubuntu 22.04 · NVIDIA Open Driver · Vast.ai Host Setup%b\n\n' "$C_SKY$C_BOLD" "$C_RESET"
 }
@@ -483,111 +834,81 @@ success_banner() {
   printf '%b╰%s╯%b\n' "$C_GREEN$C_BOLD" "$(_box_line '═' "$width")" "$C_RESET"
 }
 install_report_box() {
-  local title="$1" line chunk prefix color width=84 text_width=78
-  shift; color="$C_SKY$C_BOLD"
-  printf '\n%b╭─ %-76.76s ╮%b\n' "$color" "$title" "$C_RESET"
-  for line in "$@"; do
-    prefix="✓"
-    while [[ -n "$line" ]]; do
-      chunk="${line:0:$text_width}"; line="${line:$text_width}"
-      printf '%b│%b %b%s%b %-78s %b│%b\n' "$color" "$C_RESET" "$C_GREEN$C_BOLD" "$prefix" "$C_RESET" "$chunk" "$color" "$C_RESET"
-      prefix=" "
+  local title="$1"; shift || true
+  local width=84 inner line prefix wrapped chunk
+  inner=$((width - 4))
+  printf '\n%b╭─ %s ' "$C_SKY$C_BOLD" "$title"
+  local used=$(( ${#title} + 4 ))
+  printf '%s╮%b\n' "$(_box_line '─' $(( width - used )))" "$C_RESET"
+  if [[ "$#" -eq 0 ]]; then
+    printf '%b│%b %-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GRAY" "$inner" "No entries" "$C_SKY$C_BOLD" "$C_RESET"
+  else
+    for line in "$@"; do
+      prefix="✓ "
+      wrapped="$line"
+      while true; do
+        local available=$((inner - ${#prefix}))
+        if [[ ${#wrapped} -le $available ]]; then
+          printf '%b│%b %s%b%-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GREEN" "$prefix" "${C_LINE:-$C_WHITE$C_BOLD}" "$available" "$wrapped" "$C_SKY$C_BOLD" "$C_RESET"
+          break
+        fi
+        chunk="${wrapped:0:$available}"
+        if [[ "$chunk" == *" "* ]]; then
+          chunk="${chunk% *}"
+          [[ -n "$chunk" ]] || chunk="${wrapped:0:$available}"
+        fi
+        printf '%b│%b %s%b%-*s %b│%b\n' "$C_SKY$C_BOLD" "$C_GREEN" "$prefix" "${C_LINE:-$C_WHITE$C_BOLD}" "$available" "$chunk" "$C_SKY$C_BOLD" "$C_RESET"
+        wrapped="${wrapped:${#chunk}}"
+        wrapped="${wrapped# }"
+        prefix="  "
+      done
     done
-  done
-  printf '%b╰%s╯%b\n\n' "$color" "$(_box_line '─' "$width")" "$C_RESET"
-}
-command_list_box() {
-  local line
-  printf '\n%b╭─ NEXT COMMANDS ────────────────────────────────────────────────────╮%b\n' "$C_GREEN$C_BOLD" "$C_RESET"
-  for line in "$@"; do
-    printf '%b│%b %b%-66.66s%b %b│%b\n' "$C_GREEN$C_BOLD" "$C_RESET" "$C_GREEN$C_BOLD" "$line" "$C_RESET" "$C_GREEN$C_BOLD" "$C_RESET"
-  done
-  printf '%b╰─────────────────────────────────────────────────────────────────────╯%b\n\n' "$C_GREEN$C_BOLD" "$C_RESET"
+  fi
+  printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-lines=(
-  "Existing rig tools package installed"
-  "Host: $(hostname)"
-  "Generated: $(date -Is)"
-)
-command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1 && lines+=("NVIDIA driver working") || lines+=("NVIDIA driver not verified")
-systemctl is-active --quiet docker 2>/dev/null && lines+=("Docker service active") || lines+=("Docker service not active")
-systemctl is-active --quiet vastai 2>/dev/null && lines+=("Vast service active") || lines+=("Vast service not active or not installed")
-if findmnt /var/lib/docker >/dev/null 2>&1; then
-  fs="$(findmnt -no FSTYPE /var/lib/docker 2>/dev/null || true)"; opts="$(findmnt -no OPTIONS /var/lib/docker 2>/dev/null || true)"
-  [[ "$fs" == "xfs" && "$opts" == *prjquota* ]] && lines+=("Docker storage verified: XFS with prjquota") || lines+=("Docker storage warning: expected XFS with prjquota")
-else
-  lines+=("Docker storage warning: /var/lib/docker is not a separate mount")
-fi
-if command -v rig-monitor >/dev/null 2>&1; then
-  lines+=("rig-monitor command installed")
-else
-  lines+=("rig-monitor command missing")
-  lines+=("Install: follow the rig-monitor repo installer, then run vast_install_summary again")
-fi
-if command -v gpu_burn >/dev/null 2>&1; then
-  lines+=("gpu_burn command installed")
-else
-  lines+=("gpu_burn command missing")
-  lines+=("Fix: sudo vast_install_gpu_burn")
-fi
-if command -v cpu_burn >/dev/null 2>&1; then
-  lines+=("cpu_burn command installed")
-else
-  lines+=("cpu_burn command missing")
-  lines+=("Install: curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash")
-fi
-if command -v memtester >/dev/null 2>&1; then
-  lines+=("memtester command installed")
-else
-  lines+=("memtester command missing")
-  lines+=("Install: curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash")
-fi
-if command -v full_burn >/dev/null 2>&1; then
-  lines+=("full_burn command installed")
-else
-  lines+=("full_burn command missing")
-  lines+=("Fix: sudo vast_install_gpu_burn")
-fi
-lines+=("Helper commands installed")
-lines+=("storage_layout")
-lines+=("sudo vast_ready_check")
-lines+=("sudo disk_health")
-lines+=("sudo docker system df")
-lines+=("sudo vast_cleanup")
-lines+=("sudo vast_system_update")
-lines+=("sudo vast_install_gpu_burn")
-
-quick=("vast_install_summary" "storage_layout" "sudo vast_ready_check" "sudo disk_health" "sudo docker system df" "sudo vast_system_update")
-command -v gpu_burn >/dev/null 2>&1 || quick+=("sudo vast_install_gpu_burn")
-command -v cpu_burn >/dev/null 2>&1 && quick+=("cpu_burn 60")
-command -v memtester >/dev/null 2>&1 && quick+=("memtester 60")
-command -v gpu_burn >/dev/null 2>&1 && quick+=("gpu_burn -tc -m 100% 60")
-if command -v full_burn >/dev/null 2>&1; then
-  quick+=("full_burn 7200" "Full burn tests the whole machine: RAM + CPU + GPU together")
-fi
-command -v rig-monitor >/dev/null 2>&1 && quick+=("rig-monitor")
+done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cli_lines=(); section=""
+while IFS= read -r line; do
+  case "$line" in
+    "What was done - full install report") section="done"; continue ;;
+    "Vast.ai host port range") section="port"; continue ;;
+    "Quick stress-test commands") section="quick"; continue ;;
+    "Useful host polish commands") section="polish"; continue ;;
+    "Optional next steps - Vast CLI") section="cli"; continue ;;
+    "VAST HOST - "*|"Generated: "*|"") continue ;;
+  esac
+  line="${line#✓ }"
+  case "$section" in
+    done) done_lines+=("$line") ;;
+    port) port_lines+=("$line") ;;
+    quick) quick_lines+=("$line") ;;
+    polish) polish_lines+=("$line") ;;
+    cli) cli_lines+=("$line") ;;
+  esac
+done < "$summary_file"
 
 hero_banner
 success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
-install_report_box "What was done - full install report" "${lines[@]}"
-install_report_box "Quick stress-test commands" "${quick[@]}"
-echo "Optional next steps: connect the Vast CLI and test this machine."
-command_list_box \
-  "vastai --help" \
-  "vastai set api-key YOUR_API_KEY" \
-  "vastai show user" \
-  "vastai show machines" \
-  "vastai self-test machine YOUR_MACHINE_ID" \
-  "vastai self-test machine YOUR_MACHINE_ID --ignore-requirements"
-echo "More CLI examples: https://docs.vast.ai/cli/hello-world"
+install_report_box "What was done - full install report" "${done_lines[@]}"
+if [[ "${#port_lines[@]}" -gt 0 ]]; then
+  install_report_box "Vast.ai host port range" "${port_lines[@]}"
+fi
+if [[ "${#quick_lines[@]}" -gt 0 ]]; then
+  install_report_box "Quick stress-test commands" "${quick_lines[@]}"
+fi
+if [[ "${#polish_lines[@]}" -gt 0 ]]; then
+  install_report_box "Useful host polish commands" "${polish_lines[@]}"
+fi
+if [[ "${#cli_lines[@]}" -gt 0 ]]; then
+  install_report_box "Optional next steps - Vast CLI" "${cli_lines[@]}"
+fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 
-for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_summary; do
+for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
   bash -n "/usr/local/bin/$cmd"
 done
-bash -n /usr/local/bin/cpu_burn /usr/local/bin/memtester
+bash -n /usr/local/bin/cpu_burn /usr/local/bin/ram_burn /usr/local/bin/memtester
 [[ -x /usr/local/bin/full_burn ]] && bash -n /usr/local/bin/full_burn || true
 
 
@@ -600,7 +921,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn cpu_burn memtester gpu_burn full_burn
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"

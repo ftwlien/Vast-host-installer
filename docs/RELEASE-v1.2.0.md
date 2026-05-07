@@ -17,7 +17,7 @@ This release adds the polished optional-extras flow and post-install stress test
 - aggressive NVIDIA GPU fan control option with reboot-safe `nvidia-xorg.service` and `gpu-fan.service`
 - `gpu_burn -tc -m 100% 60` GPU stress-test command
 - `cpu_burn 60` CPU stress-test command using `stress-ng`
-- `memtester 60` dedicated RAM test command using `memtester`
+- `sudo ram_burn 60` stressapptest RAM burn command with auto-sized memory and `--pause_delay 999999`
 - Memtest86+ package installed for boot-menu/offline memory testing
 - `full_burn 7200` combined CPU+GPU+RAM 2-hour burn-in command with `~/burn-logs` output
 - `vast_install_summary`, `storage_layout`, `sudo vast_ready_check`, `sudo disk_health`, `sudo docker system df`, `sudo vast_system_update`, and `sudo vast_cleanup` operator/helper commands
@@ -32,7 +32,7 @@ This release adds the polished optional-extras flow and post-install stress test
 
 ```bash
 cpu_burn 60
-memtester 60
+sudo ram_burn 60
 gpu_burn -tc -m 100% 60
 full_burn 7200
 # full_burn tests the whole machine: RAM + CPU + GPU together

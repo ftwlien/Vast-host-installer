@@ -196,6 +196,21 @@ install_gpu_burn() {
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$install_dir"
+args=("\$@")
+last="\${args[-1]:-}"
+if [[ "\$last" =~ ^[0-9]+$ ]] && command -v timeout >/dev/null 2>&1; then
+  grace="\${GPU_BURN_TIMEOUT_GRACE:-30}"
+  case "\$grace" in ''|*[!0-9]*) grace=30 ;; esac
+  set +e
+  timeout --kill-after=10s "\$((last + grace))s" "$install_dir/gpu_burn" "\$@"
+  status="\$?"
+  set -e
+  if [[ "\$status" -eq 124 ]]; then
+    echo "gpu_burn duration \${last}s reached; stopped after \${grace}s grace"
+    exit 0
+  fi
+  exit "\$status"
+fi
 exec "$install_dir/gpu_burn" "\$@"
 EOF
   sudo chmod 0755 "$wrapper"
@@ -228,13 +243,13 @@ EOF
 install_cpu_burn() {
   local cpu_wrapper ram_wrapper
   cpu_wrapper="/usr/local/bin/cpu_burn"
-  ram_wrapper="/usr/local/bin/memtester"
+  ram_wrapper="/usr/local/bin/ram_burn"
 
   banner "Optional Extra - CPU/RAM Burn Stress Tests"
 
   step "Installing CPU/RAM stress-test dependencies"
   sudo apt-get update
-  sudo apt-get install -y stress-ng memtester memtest86+
+  sudo apt-get install -y stress-ng stressapptest memtest86+
 
   step "Installing cpu_burn command"
   sudo tee "$cpu_wrapper" >/dev/null <<'EOF'
@@ -255,57 +270,100 @@ EOF
   sudo chmod 0755 "$cpu_wrapper"
   sudo bash -n "$cpu_wrapper"
 
-  step "Installing memtester command"
+  step "Installing ram_burn command"
   sudo tee "$ram_wrapper" >/dev/null <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 seconds="${1:-60}"
 case "$seconds" in
-  ''|*[!0-9]*)
-    echo "Usage: memtester [seconds]" >&2
-    echo "Example: memtester 60" >&2
-    exit 2
-    ;;
+  ''|*[!0-9]*) echo "Usage: ram_burn [seconds]" >&2; echo "Example: ram_burn 7200" >&2; exit 2 ;;
 esac
-
-memory_mb="${MEMTESTER_MB:-}"
-if [[ -z "$memory_mb" ]]; then
-  available_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
-  memory_mb=$(( available_mb * 80 / 100 ))
-fi
-if (( memory_mb < 64 )); then
-  echo "Not enough available memory for memtester (${memory_mb}M calculated)" >&2
+if ! command -v stressapptest >/dev/null 2>&1; then
+  echo "stressapptest command not found. Install package: sudo apt-get install -y stressapptest" >&2
   exit 1
 fi
-
-# Use timeout for seconds-based UX while preserving memtester's dedicated RAM test behavior.
-real_memtester="/usr/sbin/memtester"
-if [[ ! -x "$real_memtester" ]]; then
-  real_memtester="/sbin/memtester"
+if [[ "${EUID:-$(id -u)}" -ne 0 && "${RAM_BURN_ALLOW_USER:-0}" != "1" ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
 fi
-if [[ ! -x "$real_memtester" ]]; then
-  echo "memtester package binary not found at /usr/sbin/memtester or /sbin/memtester" >&2
+total_mb="$(awk '/MemTotal:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+available_mb="$(awk '/MemAvailable:/ {printf "%d", $2 / 1024}' /proc/meminfo)"
+reserve_mb="${RAM_BURN_RESERVE_MB:-8192}"
+percent="${RAM_BURN_PERCENT:-90}"
+case "$reserve_mb" in ''|*[!0-9]*) echo "RAM_BURN_RESERVE_MB must be a number" >&2; exit 2;; esac
+case "$percent" in ''|*[!0-9]*) echo "RAM_BURN_PERCENT must be a number" >&2; exit 2;; esac
+if [[ -n "${RAM_BURN_MB:-}" ]]; then
+  memory_mb="$RAM_BURN_MB"
+elif [[ -n "${STRESSAPPTEST_MB:-}" ]]; then
+  memory_mb="$STRESSAPPTEST_MB"
+else
+  percent_target=$(( total_mb * percent / 100 ))
+  available_target=$(( available_mb - reserve_mb ))
+  if (( percent_target < available_target )); then memory_mb=$percent_target; else memory_mb=$available_target; fi
+fi
+max_mb=$(( available_mb - 2048 ))
+if (( memory_mb > max_mb )); then memory_mb=$max_mb; fi
+if (( memory_mb < 1024 )); then
+  echo "Not enough available memory for ram_burn (${memory_mb}M calculated; total=${total_mb}M available=${available_mb}M reserve=${reserve_mb}M)" >&2
   exit 1
 fi
+memory_gib="$(awk -v mb="$memory_mb" 'BEGIN {printf "%.1f", mb/1024}')"
+log_dir="${RAM_BURN_LOG_DIR:-${SUDO_USER:+/home/$SUDO_USER}/burn-logs}"
+if [[ -z "$log_dir" || "$log_dir" == "/burn-logs" ]]; then log_dir="${HOME}/burn-logs"; fi
+mkdir -p "$log_dir"
+if [[ -n "${SUDO_USER:-}" && -d "/home/$SUDO_USER" ]]; then chown "$SUDO_USER:$SUDO_USER" "$log_dir" 2>/dev/null || true; fi
+log_file="$log_dir/ram_burn-$(date +%Y%m%d-%H%M%S).log"
+echo "ram_burn log: $log_file"
+echo "Starting stressapptest RAM burn for ${seconds}s using ${memory_mb}M (${memory_gib}GiB)"
+echo "Auto sizing: total=${total_mb}M available=${available_mb}M reserve=${reserve_mb}M percent=${percent}%"
+echo "Command: stressapptest -W -s ${seconds} -M ${memory_mb} --pause_delay 999999"
+stressapptest -W -s "$seconds" -M "$memory_mb" --pause_delay 999999 >"$log_file" 2>&1 &
+sap_pid=$!
+cleanup() { kill "$sap_pid" >/dev/null 2>&1 || true; wait "$sap_pid" >/dev/null 2>&1 || true; }
+trap 'cleanup; exit 130' INT TERM
+last_report=-10
 status=0
-timeout --foreground "${seconds}s" "$real_memtester" "${memory_mb}M" 1 || status=$?
-if [[ "$status" -eq 124 ]]; then
-  echo "memtester timed test completed after ${seconds}s"
+while kill -0 "$sap_pid" >/dev/null 2>&1; do
+  elapsed="$(ps -o etimes= -p "$sap_pid" 2>/dev/null | tr -d ' ' || echo 0)"; elapsed="${elapsed:-0}"
+  if (( elapsed - last_report >= 10 )); then
+    rss_kb="$(awk '/VmRSS:/ {print $2}' "/proc/${sap_pid}/status" 2>/dev/null || echo 0)"
+    rss_gib="$(awk -v kb="${rss_kb:-0}" 'BEGIN {printf "%.1f", kb/1024/1024}')"
+    echo "RAM used by stressapptest: ${rss_gib}GiB / ${memory_gib}GiB target (${elapsed}s elapsed)"
+    last_report=$elapsed
+  fi
+  sleep 2
+done
+wait "$sap_pid" || status=$?
+trap - INT TERM
+if [[ "$status" -eq 0 ]]; then
+  echo "ram_burn completed successfully"
+  echo "Log saved to: $log_file"
   exit 0
 fi
+echo "ram_burn failed with exit code ${status}" >&2
+echo "Last log lines:" >&2
+tail -n 60 "$log_file" >&2 || true
 exit "$status"
 EOF
   sudo chmod 0755 "$ram_wrapper"
   sudo bash -n "$ram_wrapper"
+  sudo tee /usr/local/bin/memtester >/dev/null <<'EOF'
+#!/usr/bin/env bash
+exec /usr/local/bin/ram_burn "$@"
+EOF
+  sudo chmod 0755 /usr/local/bin/memtester
+  sudo bash -n /usr/local/bin/memtester
 
   if ! command -v stress-ng >/dev/null 2>&1; then
     die "stress-ng install failed: command not found after apt install"
   fi
+  if ! command -v stressapptest >/dev/null 2>&1; then
+    die "stressapptest install failed: command not found after apt install"
+  fi
   [[ -x "$cpu_wrapper" ]] || die "cpu_burn wrapper was not created at ${cpu_wrapper}"
-  [[ -x "$ram_wrapper" ]] || die "memtester wrapper was not created at ${ram_wrapper}"
+  [[ -x "$ram_wrapper" ]] || die "ram_burn wrapper was not created at ${ram_wrapper}"
 
-  success "CPU/RAM burn installed. Test with: cpu_burn 60 and memtester 60. Memtest86+ is available from the boot menu."
+  success "CPU/RAM burn installed. Test with: cpu_burn 60 and sudo ram_burn 60. Memtest86+ is available from the boot menu."
 }
 
 install_full_burn_if_ready() {
@@ -346,11 +404,11 @@ cpu_pid=$!
 gpu_burn -tc -m 100% "$seconds" &
 gpu_pid=$!
 ram_pressure_pid=""
-if command -v stress-ng >/dev/null 2>&1; then
-  stress-ng --vm 0 --vm-bytes 50% --verify --metrics-brief --timeout "${seconds}s" &
+if command -v ram_burn >/dev/null 2>&1; then
+  sudo RAM_BURN_PERCENT="${FULL_BURN_RAM_PERCENT:-90}" RAM_BURN_RESERVE_MB="${FULL_BURN_RAM_RESERVE_MB:-8192}" ram_burn "$seconds" &
   ram_pressure_pid=$!
 else
-  echo "stress-ng not found; running CPU + GPU only" >&2
+  echo "ram_burn not found; running CPU + GPU only" >&2
 fi
 
 cleanup() {
@@ -387,12 +445,15 @@ EOF
 }
 
 install_host_polish_tools() {
-  local storage_layout disk_health vast_ready_check vast_cleanup vast_system_update
+  local storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_port_range vast_port_check burn_cleanup
   storage_layout="/usr/local/bin/storage_layout"
   disk_health="/usr/local/bin/disk_health"
   vast_ready_check="/usr/local/bin/vast_ready_check"
   vast_cleanup="/usr/local/bin/vast_cleanup"
   vast_system_update="/usr/local/bin/vast_system_update"
+  vast_port_range="/usr/local/bin/vast_port_range"
+  vast_port_check="/usr/local/bin/vast_port_check"
+  burn_cleanup="/usr/local/bin/rig-burn-cleanup"
 
   banner "Host Polish Tools"
 
@@ -708,8 +769,164 @@ SCRIPT
 sudo chmod 0755 "$vast_system_update"
   sudo bash -n "$vast_system_update"
 
+  step "Installing Vast.ai host port helper commands"
+  sudo tee "$vast_port_range" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+range="${1:-}"
+if [[ -z "$range" ]]; then
+  echo "Current range: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+  echo "Usage to change: sudo vast_port_range START-END" >&2
+  echo "Example: sudo vast_port_range 63401-63800" >&2
+  exit 0
+fi
+case "$range" in
+  *-*) ;;
+  *) echo "Usage: sudo vast_port_range [START-END]" >&2; echo "Example: sudo vast_port_range 63401-63800" >&2; exit 2 ;;
+esac
+start="${range%-*}"; end="${range#*-}"
+case "$start$end" in *[!0-9]*|'') echo "Invalid range: $range" >&2; exit 2 ;; esac
+if (( start < 1 || end > 65535 || start > end )); then echo "Invalid TCP/UDP port range: $range" >&2; exit 2; fi
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then echo "Re-running with sudo..."; exec sudo "$0" "$@"; fi
+install -d -m 0755 /var/lib/vastai_kaalia
+printf '%s
+' "$range" > /var/lib/vastai_kaalia/host_port_range
+chmod 0644 /var/lib/vastai_kaalia/host_port_range
+echo "Vast.ai host port range set to: $(cat /var/lib/vastai_kaalia/host_port_range)"
+echo
+echo "What this is:"
+echo "  Vast.ai uses /var/lib/vastai_kaalia/host_port_range to know which host ports"
+echo "  it may assign/map to rented containers for services like SSH, web UIs, APIs, etc."
+echo "  Example: 63401-63800 gives Vast 400 host ports to allocate."
+echo
+echo "Next check: sudo vast_port_check"
+SCRIPT
+  sudo chmod 0755 "$vast_port_range"
+  sudo bash -n "$vast_port_range"
 
-  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup, vast_system_update"
+  sudo tee "$vast_port_check" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+range_file="/var/lib/vastai_kaalia/host_port_range"
+if [[ ! -f "$range_file" ]]; then
+  echo "Missing $range_file"
+  echo "Fix: set your intended range, for example: sudo vast_port_range 63401-63800"
+  exit 1
+fi
+range="$(tr -d '[:space:]' < "$range_file")"
+start="${range%-*}"; end="${range#*-}"
+case "$range" in *-*) ;; *) echo "Invalid range in $range_file: $range" >&2; exit 1 ;; esac
+case "$start$end" in *[!0-9]*|'') echo "Invalid range in $range_file: $range" >&2; exit 1 ;; esac
+if (( start < 1 || end > 65535 || start > end )); then echo "Invalid TCP/UDP port range in $range_file: $range" >&2; exit 1; fi
+echo "== Vast.ai host port range =="
+echo "$range_file: $range"
+echo "Ports: $(( end - start + 1 ))"
+echo
+echo "What this means: Vast may map rented container services onto these host ports."
+echo "Important: ports normally only show LISTEN/open when a container is actively using them."
+echo "This local checker verifies the setting and local firewall/listeners; true external reachability"
+echo "still depends on router/provider/firewall/public IP path."
+echo
+echo "== Public IP guess =="
+(curl -fsS --max-time 4 https://api.ipify.org || curl -fsS --max-time 4 https://ifconfig.me || true) | sed 's/^/Public IP: /'
+echo
+echo "== Current listeners inside range =="
+if command -v ss >/dev/null 2>&1; then
+  ss -H -ltnup 2>/dev/null | awk -v s="$start" -v e="$end" '{ local=$5; n=split(local,a,":"); p=a[n]; gsub(/[^0-9]/,"",p); if (p >= s && p <= e) print }' || true
+else
+  echo "ss command not found"
+fi
+echo
+echo "== Local port state summary =="
+listening=0
+for ((p=start; p<=end; p++)); do
+  if ss -H -ltn "sport = :$p" 2>/dev/null | grep -q . || ss -H -lun "sport = :$p" 2>/dev/null | grep -q .; then
+    echo "LISTEN local :$p"; listening=$((listening + 1))
+  fi
+done
+if (( listening == 0 )); then echo "No ports in $range are listening right now. That is normal before a Vast container maps one."; fi
+echo
+echo "== Firewall hints =="
+if command -v ufw >/dev/null 2>&1; then
+  ufw_status="$(ufw status 2>/dev/null || true)"; echo "$ufw_status" | sed -n '1,12p'
+  if echo "$ufw_status" | grep -qi '^Status: active'; then
+    if echo "$ufw_status" | grep -Eq "${start}:${end}|${start}-${end}|${start}"; then echo "UFW appears to mention this range."; else echo "WARNING: UFW is active and no obvious rule for $range was found."; echo "Possible fix if you use UFW: sudo ufw allow ${start}:${end}/tcp && sudo ufw allow ${start}:${end}/udp"; fi
+  else echo "UFW is not active."; fi
+else echo "ufw not installed."; fi
+echo
+echo "== Result =="
+echo "✓ Vast host port range file is valid: $range"
+echo "Run this after a rented container starts if you want to see which ports are actually listening."
+SCRIPT
+  sudo chmod 0755 "$vast_port_check"
+  sudo bash -n "$vast_port_check"
+
+  step "Installing rig-burn-cleanup command"
+  sudo tee "$burn_cleanup" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+auto_yes=0
+case "${1:-}" in
+  -y|--yes) auto_yes=1 ;;
+  -h|--help)
+    cat <<'EOF'
+Usage: sudo rig-burn-cleanup [--yes]
+
+Kills leftover/stuck local burn-test processes: full_burn, cpu_burn, ram_burn,
+stressapptest, gpu_burn, stress-ng, and old memtester wrappers/processes.
+EOF
+    exit 0 ;;
+  "") ;;
+  *) echo "Unknown option: $1" >&2; exit 2 ;;
+esac
+collect_pids() {
+  ps -eo pid=,ppid=,stat=,comm=,args= | awk -v self="$$" -v parent="$PPID" '
+    function m(line) { return line ~ /\/usr\/local\/bin\/(full_burn|cpu_burn|ram_burn|memtester)/ || line ~ /(^|[[:space:]])(full_burn|cpu_burn|ram_burn)([[:space:]]|$)/ || line ~ /stressapptest/ || line ~ /\/opt\/gpu-burn\/gpu_burn/ || line ~ /gpu_burn -tc -m/ || line ~ /stress-ng .*--(cpu|vm)/ || line ~ /\/(usr\/sbin|sbin)\/memtester/ || line ~ /timeout .*memtester/ }
+    { pid=$1; line=$0; if (pid==self || pid==parent) next; if (line ~ /rig-burn-cleanup/) next; if (m(line)) print pid; }
+  ' | sort -n -u
+}
+print_matches() {
+  ps -eo pid,ppid,stat,etimes,rss,vsz,comm,args | awk '
+    function m(line) { return line ~ /\/usr\/local\/bin\/(full_burn|cpu_burn|ram_burn|memtester)/ || line ~ /(^|[[:space:]])(full_burn|cpu_burn|ram_burn)([[:space:]]|$)/ || line ~ /stressapptest/ || line ~ /\/opt\/gpu-burn\/gpu_burn/ || line ~ /gpu_burn -tc -m/ || line ~ /stress-ng .*--(cpu|vm)/ || line ~ /\/(usr\/sbin|sbin)\/memtester/ || line ~ /timeout .*memtester/ }
+    NR==1 || (m($0) && $0 !~ /rig-burn-cleanup/) { print }
+  '
+}
+mapfile -t pids < <(collect_pids)
+if (( ${#pids[@]} == 0 )); then echo "No burn/stress-test leftovers found."; exit 0; fi
+echo "Found burn/stress-test processes:"
+print_matches
+echo
+if (( auto_yes == 0 )); then
+  read -r -p "Type KILL BURNS to terminate these processes: " answer
+  [[ "$answer" == "KILL BURNS" ]] || { echo "Cancelled."; exit 0; }
+fi
+echo "Sending TERM to: ${pids[*]}"
+kill "${pids[@]}" 2>/dev/null || true
+sleep 2
+mapfile -t remaining < <(collect_pids)
+if (( ${#remaining[@]} > 0 )); then
+  echo "Still present; sending KILL to: ${remaining[*]}"
+  kill -9 "${remaining[@]}" 2>/dev/null || true
+  sleep 2
+fi
+mapfile -t final < <(collect_pids)
+if (( ${#final[@]} > 0 )); then
+  echo "WARNING: some processes still remain:" >&2
+  print_matches >&2
+  exit 1
+fi
+echo "Burn/stress-test cleanup complete."
+free -h || true
+SCRIPT
+sudo chmod 0755 "$burn_cleanup"
+  sudo bash -n "$burn_cleanup"
+
+
+  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup, vast_system_update, vast_port_range, vast_port_check, rig-burn-cleanup"
 }
 
 install_gpu_fan_control() {
