@@ -248,7 +248,9 @@ Installs reboot-safe headless Xorg + fan-control services for NVIDIA rigs. The c
 - 70–71°C → 90%
 - 72°C and above → 100%
 
-This keeps rented GPUs cooled aggressively under load without forcing idle rigs to sit at 50% fan forever.
+This is good for Vast rigs because loads can spike really fast. A renter can suddenly push the GPUs from idle to full load, and the normal NVIDIA auto fan curve can be too slow to react. By the time the fans catch up, the cards can already jump to 80–85°C.
+
+This fan curve starts cooling earlier and ramps the fans harder under load, so it helps stop big temperature spikes and throttling. When the rig is idle and under 50°C, it goes back to auto mode so the fans don’t have to run hard all the time.
 
 #### gpu-burn stress-test tool
 
