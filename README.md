@@ -16,7 +16,7 @@ Download the latest release here:
 
 Current recommended ISO:
 
-- **`vast-host-installer-jammy-v1.2.6.iso`**
+- **`vast-host-installer-jammy-v1.iso`**
 - Ubuntu Server 22.04 Jammy-based custom Vast.ai host ISO
 - Boots/stages the installer cleanly from USB with a local payload at `/opt/vast-host-installer`
 - Includes the polished Phase 3 summary, burn-test suite, port helpers, readiness checks, and existing-rig tools
@@ -115,7 +115,7 @@ Go to:
 Download:
 
 ```text
-vast-host-installer-jammy-v1.2.6.iso
+vast-host-installer-jammy-v1.iso
 ```
 
 Optional but recommended: verify the SHA256 checksum matches the `.sha256` file attached to the release.
@@ -132,7 +132,7 @@ Use one of these tools:
 Basic flow:
 
 1. Open balenaEtcher or Rufus.
-2. Select `vast-host-installer-jammy-v1.2.6.iso`.
+2. Select `vast-host-installer-jammy-v1.iso`.
 3. Select your USB stick.
 4. Click flash/start.
 5. Wait until it finishes.

@@ -9,7 +9,7 @@ Generated ISO files live in `iso/build/` and are intentionally ignored by git be
 ## Recommended build
 
 ```text
-vast-host-installer-jammy-v1.2.6.iso
+vast-host-installer-jammy-v1.iso
 ```
 
 SHA256: see the `.sha256` file attached to the GitHub release.

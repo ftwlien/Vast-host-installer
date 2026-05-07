@@ -1,11 +1,11 @@
-# Vast Host Installer v1.2.6 — Polished Vast-Ready Host ISO
+# Vast Host Installer v1 — Polished Vast-Ready Host ISO
 
 ## Download
 
 Recommended ISO:
 
 ```text
-vast-host-installer-jammy-v1.2.6.iso
+vast-host-installer-jammy-v1.iso
 ```
 
 SHA256: see the `.sha256` file attached to the GitHub release.
@@ -117,7 +117,7 @@ This installs the Phase 3-style summary, validation tools, port helpers, burn to
 
 ## Quick install flow
 
-1. Download `vast-host-installer-jammy-v1.2.6.iso` from GitHub Releases.
+1. Download `vast-host-installer-jammy-v1.iso` from GitHub Releases.
 2. Flash it with balenaEtcher or Rufus.
 3. Boot the rig from USB.
 4. Let Ubuntu Server autoinstall finish.
