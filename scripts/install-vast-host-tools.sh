@@ -906,7 +906,13 @@ polish=(
   "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
 )
 command -v gpu_burn >/dev/null 2>&1 || polish+=("sudo vast_install_gpu_burn - Install/rebuild GPU burn tool")
-systemctl list-unit-files gpu-fan.service --no-legend 2>/dev/null | grep -q '^gpu-fan\.service' || polish+=("sudo vast_install_gpu_fan_control - Install aggressive GPU fan control")
+fan_control_installed=0
+if systemctl list-unit-files gpu-fan.service --no-legend 2>/dev/null | grep -q '^gpu-fan\.service'; then
+  fan_control_installed=1
+  polish+=("systemctl status gpu-fan.service - Check aggressive GPU fan control")
+else
+  polish+=("sudo vast_install_gpu_fan_control - Install aggressive GPU fan control")
+fi
 command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
 {
   echo "VAST HOST - PHASE 3 COMPLETE - VAST SETUP FINISHED"
@@ -922,6 +928,13 @@ command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monit
   else
     echo "✓ Stress-test commands missing"
     echo "✓ Install: curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash"
+  fi
+  if (( fan_control_installed == 1 )); then
+    if systemctl is-active --quiet gpu-fan.service 2>/dev/null; then
+      echo "✓ Aggressive GPU fan control installed and running"
+    else
+      echo "✓ Aggressive GPU fan control installed but not active"
+    fi
   fi
   echo "✓ Host polish commands installed"
   echo
