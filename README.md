@@ -526,6 +526,7 @@ This adds:
 - `gpu_burn`
 - `full_burn`
 - `sudo rig-burn-cleanup`
+- `sudo vast_install_gpu_fan_control`
 - `rig-monitor` when available/installed
 
 If gpu-burn ever needs repair:
@@ -533,6 +534,14 @@ If gpu-burn ever needs repair:
 ```bash
 sudo vast_install_gpu_burn
 ```
+
+To add aggressive Vast.ai GPU fan control on an already-running Ubuntu rig:
+
+```bash
+sudo vast_install_gpu_fan_control
+```
+
+This installs the same headless NVIDIA Xorg + `gpu-fan.service` fan curve used by the ISO Phase 3 flow.
 
 This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
 

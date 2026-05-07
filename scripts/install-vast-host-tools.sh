@@ -17,6 +17,7 @@ Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - cpu_burn
 - ram_burn stressapptest RAM burn wrapper
 - gpu_burn
+- vast_install_gpu_fan_control aggressive NVIDIA GPU fan-control installer
 - full_burn 7200 whole-machine RAM + CPU + GPU burn test
 - rig-burn-cleanup stuck burn-test cleanup command
 - vast_port_range / vast_port_check Vast.ai host port helpers
@@ -726,6 +727,159 @@ echo "Burn/stress-test cleanup complete."; free -h || true
 SCRIPT
 chmod 0755 /usr/local/bin/rig-burn-cleanup
 
+cat >/usr/local/bin/vast_install_gpu_fan_control <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+step() { printf '\n==> %s\n' "$*"; }
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+echo "== Aggressive Vast.ai GPU fan control installer =="
+echo
+echo "This installs headless NVIDIA Xorg plus gpu-fan.service."
+echo "Fan curve: <50°C auto, <60°C 50%, <70°C 75%, <72°C 90%, >=72°C 100%."
+echo
+
+if ! command -v nvidia-smi >/dev/null 2>&1; then
+  die "nvidia-smi is missing. Install NVIDIA drivers first, then rerun this command."
+fi
+if ! nvidia-smi >/dev/null 2>&1; then
+  die "NVIDIA is not ready; nvidia-smi failed. Fix the driver before installing fan control."
+fi
+if ! command -v apt-get >/dev/null 2>&1; then
+  die "This helper currently supports apt-based Ubuntu/Debian systems."
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+
+step "Installing Xorg/nvidia-settings runtime dependencies"
+apt-get update
+apt-get install -y xserver-xorg-core nvidia-settings libxv1
+
+step "Ensuring NVIDIA Xorg config exposes all GPUs and fan controls"
+if command -v nvidia-xconfig >/dev/null 2>&1; then
+  nvidia-xconfig -a --cool-bits=28 --allow-empty-initial-configuration --enable-all-gpus || true
+else
+  echo "WARNING: nvidia-xconfig not found; continuing because some driver packages omit it." >&2
+fi
+
+step "Installing headless NVIDIA Xorg service"
+cat >/etc/systemd/system/nvidia-xorg.service <<'EOF'
+[Unit]
+Description=NVIDIA Headless Xorg
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/bin/X :0 -noreset
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+step "Installing aggressive Vast.ai fan curve"
+cat >/usr/local/bin/gpu-fan.sh <<'EOF'
+#!/bin/bash
+export DISPLAY=:0
+export XAUTHORITY=/root/.Xauthority
+
+sleep 10
+
+while true; do
+    MAXTEMP=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | sort -nr | head -n1)
+
+    GPUS=$(nvidia-settings --ctrl-display=:0 -q gpus 2>/dev/null | grep -o "gpu:[0-9]*" | sort -u)
+    FANS=$(nvidia-settings --ctrl-display=:0 -q fans 2>/dev/null | grep -o "fan:[0-9]*" | sort -u)
+
+    if [ "$MAXTEMP" -lt 50 ]; then
+        MODE="auto"
+        unset SPEED
+    elif [ "$MAXTEMP" -lt 60 ]; then
+        SPEED=50
+        MODE="manual"
+    elif [ "$MAXTEMP" -lt 70 ]; then
+        SPEED=75
+        MODE="manual"
+    elif [ "$MAXTEMP" -lt 72 ]; then
+        SPEED=90
+        MODE="manual"
+    else
+        SPEED=100
+        MODE="manual"
+    fi
+
+    echo "$(date) | Temp: $MAXTEMP°C -> Mode: $MODE ${SPEED:-} | GPUs: $GPUS | Fans: $FANS"
+
+    for gpu in $GPUS; do
+        if [ "$MODE" = "auto" ]; then
+            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=0" >/dev/null 2>&1
+        else
+            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=1" >/dev/null 2>&1
+        fi
+    done
+
+    if [ "$MODE" = "manual" ]; then
+        for fan in $FANS; do
+            nvidia-settings --ctrl-display=:0 -a "[$fan]/GPUTargetFanSpeed=$SPEED" >/dev/null 2>&1
+        done
+    fi
+
+    sleep 5
+done
+EOF
+chmod 0755 /usr/local/bin/gpu-fan.sh
+bash -n /usr/local/bin/gpu-fan.sh
+
+step "Installing GPU fan control service"
+cat >/etc/systemd/system/gpu-fan.service <<'EOF'
+[Unit]
+Description=Smart NVIDIA GPU Fan Control
+After=nvidia-xorg.service
+Requires=nvidia-xorg.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/bin/gpu-fan.sh
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemd-analyze verify /etc/systemd/system/nvidia-xorg.service /etc/systemd/system/gpu-fan.service >/dev/null
+systemctl daemon-reload
+systemctl enable nvidia-xorg.service gpu-fan.service >/dev/null
+
+step "Starting headless Xorg and fan control"
+if ! systemctl is-active --quiet nvidia-xorg.service; then
+  systemctl start nvidia-xorg.service
+fi
+systemctl restart gpu-fan.service
+
+sleep 15
+systemctl is-active --quiet nvidia-xorg.service || die "nvidia-xorg.service did not become active"
+systemctl is-active --quiet gpu-fan.service || die "gpu-fan.service did not become active"
+DISPLAY=:0 XAUTHORITY=/root/.Xauthority nvidia-settings -q gpus -q fans >/dev/null 2>&1 || die "nvidia-settings cannot see GPUs/fans on DISPLAY=:0"
+
+echo
+echo "Aggressive Vast.ai GPU fan control installed and running."
+echo "Check it with: systemctl status gpu-fan.service"
+SCRIPT
+chmod 0755 /usr/local/bin/vast_install_gpu_fan_control
+
 summary_file="/var/lib/vast-host-installer/final-summary.txt"
 install -d -m 0755 /var/lib/vast-host-installer
 burn_cmds=()
@@ -752,6 +906,7 @@ polish=(
   "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
 )
 command -v gpu_burn >/dev/null 2>&1 || polish+=("sudo vast_install_gpu_burn - Install/rebuild GPU burn tool")
+systemctl list-unit-files gpu-fan.service --no-legend 2>/dev/null | grep -q '^gpu-fan\.service' || polish+=("sudo vast_install_gpu_fan_control - Install aggressive GPU fan control")
 command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
 {
   echo "VAST HOST - PHASE 3 COMPLETE - VAST SETUP FINISHED"
@@ -905,7 +1060,7 @@ fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 
-for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
+for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
   bash -n "/usr/local/bin/$cmd"
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/ram_burn /usr/local/bin/memtester
@@ -921,7 +1076,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"
