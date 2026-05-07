@@ -14,6 +14,12 @@ Download the latest release here:
 
 <https://github.com/ftwlien/Vast-host-installer/releases/latest>
 
+## Video walkthrough
+
+Watch the full setup walkthrough here:
+
+<https://www.youtube.com/watch?v=PCbVXb28pO0>
+
 Current recommended ISO:
 
 - **`vast-host-installer-jammy-v1.iso`**
