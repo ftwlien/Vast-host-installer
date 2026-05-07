@@ -708,7 +708,7 @@ Still planned:
 
 This project is **not MIT licensed**.
 
-It is source-available for personal, educational, hobby, research, and other non-commercial use under the terms in [`LICENSE`](LICENSE).
+It is source-available for personal, educational, hobby, research, and other non-commercial use under the **FTWLIEN Non-Commercial License v1.0** in [`LICENSE`](LICENSE).
 
 Commercial use is prohibited without prior written permission from the copyright holder. That includes hosting, resale, paid services, integration into commercial products or workflows, internal business use, or use by companies to support commercial GPU, AI, cloud, hosting, compute, or Vast.ai infrastructure.
 
