@@ -110,7 +110,13 @@ The installer will later offer to wipe the non-root data disk and mount it as:
 
 The root/OS disk will not be touched.
 
-### 2. Clone and inspect this repo
+### 2. Boot into Ubuntu
+
+After Ubuntu finishes, boot into the installed system and make sure you have internet and sudo.
+
+If you are on Proxmox or another VM platform, remove/eject the Ubuntu ISO and boot from disk. Use a full stop/start, not just reset, so the VM does not boot back into the installer.
+
+### 3. Clone and inspect this repo
 
 ```bash
 git clone https://github.com/ftwlien/Vast-host-installer.git
@@ -126,7 +132,7 @@ less scripts/install-clean-ubuntu-vast.sh
 
 Use a release tag for auditability. Avoid running moving `main` on production rigs unless you intentionally want the latest development version.
 
-### 3. Run the official-Ubuntu bootstrap
+### 4. Run the official-Ubuntu bootstrap
 
 ```bash
 sudo bash scripts/install-clean-ubuntu-vast.sh
@@ -144,7 +150,7 @@ Then it launches the same guided first-run flow used by the ISO, with one extra 
 sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
 ```
 
-### 4. Storage wizard
+### 5. Storage wizard
 
 Before Phase 1 starts, the installer shows a storage wizard.
 
@@ -173,7 +179,7 @@ or:
 WIPE /dev/sda3
 ```
 
-### 5. Continue the same ISO-style phases
+### 6. Continue the same ISO-style phases
 
 After Phase 1, reboot when told, then run:
 
