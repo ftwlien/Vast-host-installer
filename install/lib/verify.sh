@@ -132,6 +132,12 @@ preflight_storage_layout() {
     docker_disk="$(_source_parent_disk "$docker_source")"
   fi
 
+  if [[ "${OFFICIAL_UBUNTU_MODE:-0}" -eq 1 ]]; then
+    echo "RESULT=docker:official-ubuntu-deferred-to-vast:source=${docker_source:-not-mounted}:fstype=${docker_fstype:-none}"
+    echo "WARN=official Ubuntu mode leaves Docker/Vast storage layout to the official Vast installer/tooling; split-storage preflight is not enforced"
+    return "$failed"
+  fi
+
   case "${PROFILE:-fresh-basic}" in
     fresh-two-disk)
       if [[ -n "$docker_source" && "$docker_source" != "$root_source" && "$docker_disk" != "$root_disk" && "$docker_fstype" == "xfs" ]] && _fstab_has_mount /var/lib/docker; then
