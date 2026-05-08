@@ -21,6 +21,7 @@ Installs standalone Vast host helper commands for already-running Ubuntu rigs:
 - full_burn 7200 whole-machine RAM + CPU + GPU burn test
 - rig-burn-cleanup stuck burn-test cleanup command
 - vast_port_range / vast_port_check Vast.ai host port helpers
+- vast_prepare_storage guided Docker/Vast storage partition helper
 EOF
       exit 0
       ;;
@@ -41,7 +42,7 @@ install -d -m 0755 /usr/local/bin /var/lib/vast-host-installer
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil
+  apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil parted gdisk xfsprogs
   apt-get install -y speedtest-cli || true
   apt-get install -y stress-ng stressapptest memtest86+ git build-essential nvidia-cuda-toolkit
 fi
@@ -538,9 +539,15 @@ echo "Run vast_install_summary again to refresh the report."
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_gpu_burn
 
-# Install gpu_burn/full_burn by default so this one installer gives the full toolkit.
+# Install gpu_burn/full_burn by default only when NVIDIA is already usable.
+# Fresh Ubuntu installs may run this before the NVIDIA driver is installed; do not
+# abort the whole host-tools install just because nvidia-smi is not ready yet.
 if ! command -v gpu_burn >/dev/null 2>&1 || [[ ! -x /usr/local/bin/full_burn ]]; then
-  /usr/local/bin/vast_install_gpu_burn
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    /usr/local/bin/vast_install_gpu_burn
+  else
+    echo "Skipping gpu_burn auto-install: NVIDIA is not ready yet. Run sudo vast_install_gpu_burn after nvidia-smi works."
+  fi
 fi
 
 # Always refresh full_burn so wrapper logic updates without rebuilding gpu-burn.
@@ -880,6 +887,215 @@ echo "Check it with: systemctl status gpu-fan.service"
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_gpu_fan_control
 
+cat >/usr/local/bin/vast_prepare_storage <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: sudo vast_prepare_storage [--plan] [--auto-2disk]
+
+Guided Vast.ai Docker storage helper for already-installed Ubuntu hosts.
+
+Safe policy:
+- 2 disks: Ubuntu/root must already be on the smallest disk; the biggest non-root disk can be wiped/formatted as XFS and mounted at /var/lib/docker.
+- 1 disk: live root-disk repartitioning is not performed. Use the ISO/autoinstall path for automatic one-disk root + Docker split, or install Ubuntu leaving free space manually.
+
+Destructive mode requires typing: WIPE /dev/DEVICE
+EOF
+}
+
+plan_only=0
+auto_2disk=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --plan) plan_only=1; shift ;;
+    --auto-2disk) auto_2disk=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [[ "${EUID:-$(id -u)}" -ne 0 && "$plan_only" -ne 1 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing required command: $1" >&2; exit 1; }; }
+for cmd in lsblk findmnt awk sort wipefs parted partprobe mkfs.xfs blkid mount systemctl; do need "$cmd"; done
+
+root_source="$(findmnt -no SOURCE /)"
+root_pk="$(lsblk -no PKNAME "$root_source" 2>/dev/null | head -n1 || true)"
+if [[ -n "$root_pk" ]]; then
+  root_disk="$(readlink -f "/dev/$root_pk")"
+else
+  root_disk="$(readlink -f "$root_source")"
+fi
+
+mapfile -t disk_lines < <(lsblk -b -dn -o PATH,SIZE,TYPE,RM,MODEL | awk '$3=="disk" && $4=="0" {path=$1; size=$2; $1=$2=$3=$4=""; sub(/^ +/,"",$0); print path "|" size "|" $0}' | sort -t'|' -k2,2n)
+
+if (( ${#disk_lines[@]} == 0 )); then
+  echo "No candidate disks found."
+  exit 1
+fi
+
+human_size() { numfmt --to=iec --suffix=B "$1" 2>/dev/null || echo "${1}B"; }
+print_disks() {
+  echo "Detected disks:"
+  for line in "${disk_lines[@]}"; do
+    IFS='|' read -r path size model <<<"$line"
+    marker=""
+    [[ "$(readlink -f "$path")" == "$root_disk" ]] && marker="  [current root disk]"
+    printf '  %-16s %-10s %s%s\n' "$path" "$(human_size "$size")" "$model" "$marker"
+  done
+  echo
+  echo "Current root source: $root_source"
+  echo "Detected root disk:  $root_disk"
+}
+
+smallest_path=""; smallest_size=""; biggest_path=""; biggest_size=""
+IFS='|' read -r smallest_path smallest_size _ <<<"${disk_lines[0]}"
+IFS='|' read -r biggest_path biggest_size _ <<<"${disk_lines[-1]}"
+smallest_path="$(readlink -f "$smallest_path")"
+biggest_path="$(readlink -f "$biggest_path")"
+
+print_plan() {
+  print_disks
+  if (( ${#disk_lines[@]} == 1 )); then
+    cat <<EOF
+Plan: 1-disk host detected.
+- The ISO/autoinstall path can split one large disk before Ubuntu is installed.
+- This post-Ubuntu helper will not live-repartition the mounted root disk.
+- Leave Docker on the current root filesystem, or reinstall with the ISO/autoinstall layout.
+EOF
+    return 0
+  fi
+  if (( ${#disk_lines[@]} > 2 )); then
+    cat <<EOF
+Plan: ${#disk_lines[@]} disks detected.
+Status: STOP. Automatic storage setup is limited to clear 1-disk or 2-disk hosts.
+Reason: with 3+ disks, choosing a wipe target automatically is too risky.
+Use manual storage setup or temporarily detach disks you do not want touched.
+EOF
+    return 0
+  fi
+  cat <<EOF
+Plan: 2-disk host detected.
+- Intended OS/root disk: smallest disk -> $smallest_path ($(human_size "$smallest_size"))
+- Intended Docker/Vast disk: biggest disk -> $biggest_path ($(human_size "$biggest_size"))
+- Docker/Vast mount: /var/lib/docker as XFS with prjquota
+EOF
+  if [[ "$root_disk" == "$smallest_path" ]]; then
+    echo "Status: OK. Root is on the smallest disk; automatic data-disk prep is allowed after confirmation."
+  else
+    echo "Status: STOP. Root is not on the smallest disk; automatic 2-disk prep is unsafe."
+  fi
+}
+
+if (( plan_only == 1 )); then
+  print_plan
+  exit 0
+fi
+
+print_plan
+
+if (( ${#disk_lines[@]} == 1 )); then
+  echo
+  echo "Refusing to repartition a live one-disk Ubuntu install."
+  exit 1
+fi
+
+if (( ${#disk_lines[@]} > 2 )); then
+  echo
+  echo "Refusing automatic storage setup on ${#disk_lines[@]} disks. Detach extra disks or use manual mode."
+  exit 1
+fi
+
+if [[ "$root_disk" != "$smallest_path" ]]; then
+  cat <<EOF
+
+Refusing automatic 2-disk storage setup.
+Ubuntu/root is not on the smallest disk.
+Reinstall Ubuntu on the smaller disk, or handle storage manually.
+EOF
+  exit 1
+fi
+
+if [[ "$biggest_path" == "$root_disk" ]]; then
+  echo "Refusing: selected data disk is the root disk ($root_disk)."
+  exit 1
+fi
+
+if findmnt -rn | awk '{print $1}' | grep -qE "^${biggest_path}([0-9]|p[0-9])"; then
+  echo "Refusing: $biggest_path has mounted partitions:"
+  findmnt -rn | grep -E "^${biggest_path}([0-9]|p[0-9])" || true
+  exit 1
+fi
+
+if (( auto_2disk != 1 )); then
+  echo
+  echo "This will WIPE $biggest_path and mount it at /var/lib/docker."
+  echo "Type exactly: WIPE $biggest_path"
+  read -r confirm
+  if [[ "$confirm" != "WIPE $biggest_path" ]]; then
+    echo "Cancelled."
+    exit 1
+  fi
+fi
+
+echo "Stopping Docker if present..."
+systemctl stop docker 2>/dev/null || true
+systemctl stop containerd 2>/dev/null || true
+
+if [[ -d /var/lib/docker && ! -L /var/lib/docker ]]; then
+  backup="/var/lib/docker.before-vast-prepare-storage.$(date +%Y%m%d%H%M%S)"
+  if findmnt /var/lib/docker >/dev/null 2>&1; then
+    umount /var/lib/docker || true
+  fi
+  if [[ -n "$(find /var/lib/docker -mindepth 1 -maxdepth 1 2>/dev/null | head -n1 || true)" ]]; then
+    echo "Moving existing /var/lib/docker to $backup"
+    mv /var/lib/docker "$backup"
+  fi
+fi
+mkdir -p /var/lib/docker
+chmod 0711 /var/lib/docker
+
+echo "Wiping and partitioning $biggest_path..."
+wipefs -a "$biggest_path"
+sgdisk --zap-all "$biggest_path" >/dev/null 2>&1 || true
+parted -s "$biggest_path" mklabel gpt
+parted -s "$biggest_path" mkpart primary xfs 0% 100%
+partprobe "$biggest_path" || true
+sleep 2
+if [[ "$biggest_path" =~ [0-9]$ ]]; then
+  data_part="${biggest_path}p1"
+else
+  data_part="${biggest_path}1"
+fi
+[[ -b "$data_part" ]] || { echo "Expected partition missing: $data_part" >&2; exit 1; }
+
+mkfs.xfs -f "$data_part"
+uuid="$(blkid -s UUID -o value "$data_part")"
+cp /etc/fstab "/etc/fstab.vast_prepare_storage.$(date +%Y%m%d%H%M%S).bak"
+grep -v ' /var/lib/docker ' /etc/fstab > /etc/fstab.tmp
+printf 'UUID=%s /var/lib/docker xfs defaults,pquota,prjquota 0 2\n' "$uuid" >> /etc/fstab.tmp
+mv /etc/fstab.tmp /etc/fstab
+mount /var/lib/docker
+
+fs="$(findmnt -no FSTYPE /var/lib/docker)"
+opts="$(findmnt -no OPTIONS /var/lib/docker)"
+if [[ "$fs" != "xfs" || "$opts" != *prjquota* ]]; then
+  echo "Storage verification failed: /var/lib/docker is $fs with options $opts" >&2
+  exit 1
+fi
+
+systemctl start containerd 2>/dev/null || true
+systemctl start docker 2>/dev/null || true
+
+echo "OK: $data_part mounted at /var/lib/docker as XFS with prjquota."
+SCRIPT
+chmod 0755 /usr/local/bin/vast_prepare_storage
+
 summary_file="/var/lib/vast-host-installer/final-summary.txt"
 install -d -m 0755 /var/lib/vast-host-installer
 burn_cmds=()
@@ -903,6 +1119,7 @@ polish=(
   "sudo vast_system_update - Safe system update helper"
   "sudo vast_cleanup - Clean idle/unlisted host leftovers"
   "sudo vast_port_check - Verify Vast host ports"
+  "sudo vast_prepare_storage --plan - Preview Docker/Vast storage layout"
   "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
 )
 command -v gpu_burn >/dev/null 2>&1 || polish+=("sudo vast_install_gpu_burn - Install/rebuild GPU burn tool")
@@ -1073,7 +1290,7 @@ fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 
-for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
+for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
   bash -n "/usr/local/bin/$cmd"
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/ram_burn /usr/local/bin/memtester
@@ -1089,7 +1306,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
+commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"

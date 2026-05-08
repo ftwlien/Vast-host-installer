@@ -23,6 +23,7 @@ CURRENT_AUTO_RUN=0
 NO_AUTO_REBOOT=0
 RESUME_AFTER_REBOOT=0
 RESUME_AFTER_NVIDIA_REBOOT=0
+OFFICIAL_UBUNTU_MODE=0
 CONFIRM_DISK=""
 VAST_API_KEY="${VAST_API_KEY:-}"
 VAST_INSTALL_COMMAND="${VAST_INSTALL_COMMAND:-}"
@@ -72,6 +73,7 @@ Options:
   --no-auto-reboot
   --resume-after-reboot
   --resume-after-nvidia-reboot
+  --official-ubuntu
   --apply
 EOF
 }
@@ -161,6 +163,10 @@ while [[ $# -gt 0 ]]; do
       RESUME_AFTER_NVIDIA_REBOOT=1
       shift
       ;;
+    --official-ubuntu|--post-ubuntu)
+      OFFICIAL_UBUNTU_MODE=1
+      shift
+      ;;
     --apply)
       APPLY_CHANGES=1
       shift
@@ -190,6 +196,7 @@ save_resume_state() {
     printf 'WITH_GPU_FAN_CONTROL=%q\n' "$WITH_GPU_FAN_CONTROL"
     printf 'WITH_GPU_BURN=%q\n' "$WITH_GPU_BURN"
     printf 'WITH_CPU_BURN=%q\n' "$WITH_CPU_BURN"
+    printf 'OFFICIAL_UBUNTU_MODE=%q\n' "$OFFICIAL_UBUNTU_MODE"
     printf 'AUTO_RUN=%q\n' "$AUTO_RUN"
     printf 'NEXT_PHASE=%q\n' "$next_phase"
   } > "$STATE_FILE"
@@ -211,6 +218,7 @@ load_resume_state() {
   WITH_GPU_FAN_CONTROL="${WITH_GPU_FAN_CONTROL:-0}"
   WITH_GPU_BURN="${WITH_GPU_BURN:-0}"
   WITH_CPU_BURN="${WITH_CPU_BURN:-0}"
+  OFFICIAL_UBUNTU_MODE="${OFFICIAL_UBUNTU_MODE:-0}"
   AUTO_RUN="${AUTO_RUN:-0}"
   case "${NEXT_PHASE:-}" in
     after-reboot)
@@ -341,7 +349,9 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
   emit_plan_preview "$PROFILE"
 
   banner "Phase 1 - Storage and System Prep"
-  if storage_already_correct; then
+  if [[ "$OFFICIAL_UBUNTU_MODE" -eq 1 ]]; then
+    official_ubuntu_storage_wizard
+  elif storage_already_correct; then
     log "storage layout already matches the intended plan; skipping storage changes"
   else
     case "$PROFILE" in

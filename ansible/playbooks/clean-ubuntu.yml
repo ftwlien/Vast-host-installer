@@ -1,0 +1,473 @@
+---
+- name: Vast Host Installer Ansible v1 - clean Ubuntu to Vast-ready host
+  hosts: vast_hosts
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Refuse non-Ubuntu systems for v1
+      ansible.builtin.assert:
+        that:
+          - ansible_facts['os_family'] == 'Debian'
+          - ansible_facts['distribution'] == 'Ubuntu'
+        fail_msg: "Ansible v1 currently supports clean Ubuntu hosts only."
+
+    - name: Refuse unsupported storage filesystem
+      ansible.builtin.assert:
+        that:
+          - vast_storage_fstype == 'xfs'
+        fail_msg: "Ansible v1 currently supports XFS Docker/Vast data disks only."
+
+    - name: Install bootstrap packages
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - git
+          - gdisk
+          - gnupg
+          - lsb-release
+          - pciutils
+          - python3
+          - sudo
+          - xfsprogs
+        state: present
+        update_cache: true
+
+  tasks:
+    - name: Create installer state directory
+      ansible.builtin.file:
+        path: "{{ vast_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Clone/update Vast Host Installer source on target
+      ansible.builtin.git:
+        repo: "{{ vast_host_installer_repo_url }}"
+        dest: "{{ vast_host_installer_path }}"
+        version: "{{ vast_host_installer_repo_version }}"
+        update: true
+        force: false
+
+    - name: Keep installer source root-owned and readable
+      ansible.builtin.file:
+        path: "{{ vast_host_installer_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+        recurse: false
+
+    - name: Install source wrapper
+      ansible.builtin.copy:
+        dest: /usr/local/bin/vast-host-installer-source
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          cd {{ vast_host_installer_path | quote }}
+          exec bash install/main.sh "$@"
+
+    - name: Save read-only installer plan preview for audit
+      ansible.builtin.shell: |
+        set -o pipefail
+        bash {{ vast_host_installer_path | quote }}/install/main.sh --plan-only > {{ vast_state_dir | quote }}/ansible-plan-preview.txt 2>&1 || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Detect root backing disks
+      ansible.builtin.shell: |
+        set -euo pipefail
+        root_src="$(findmnt -no SOURCE /)"
+        root_pk="$(lsblk -no PKNAME "$root_src" 2>/dev/null | head -n1 || true)"
+        if [ -n "$root_pk" ]; then
+          readlink -f "/dev/$root_pk"
+        else
+          readlink -f "$root_src"
+        fi
+      args:
+        executable: /bin/bash
+      register: vast_root_disk
+      changed_when: false
+
+    - name: Validate explicit Docker/Vast data disk before destructive storage work
+      ansible.builtin.assert:
+        that:
+          - vast_docker_disk | length > 0
+          - vast_docker_disk is match('^/dev/')
+          - vast_docker_disk != vast_root_disk.stdout
+        fail_msg: >-
+          Refusing storage setup. Set vast_docker_disk to a non-root disk such as /dev/nvme1n1
+          and set vast_apply_storage=true. Root disk detected as {{ vast_root_disk.stdout }}.
+      when: vast_apply_storage | bool
+
+    - name: Stop Docker before moving Docker root to data disk
+      ansible.builtin.systemd:
+        name: docker
+        state: stopped
+      failed_when: false
+      when: vast_apply_storage | bool
+
+    - name: Partition selected Docker/Vast data disk as one GPT XFS partition
+      ansible.builtin.shell: |
+        set -euo pipefail
+        disk={{ vast_docker_disk | quote }}
+        wipefs -a "$disk"
+        sgdisk --zap-all "$disk" || true
+        parted -s "$disk" mklabel gpt
+        parted -s "$disk" mkpart primary xfs 0% 100%
+        partprobe "$disk" || true
+        sleep 2
+      args:
+        executable: /bin/bash
+      when: vast_apply_storage | bool
+
+    - name: Determine Docker/Vast data partition path
+      ansible.builtin.shell: |
+        set -euo pipefail
+        disk={{ vast_docker_disk | quote }}
+        if [[ "$disk" =~ [0-9]$ ]]; then
+          part="${disk}p1"
+        else
+          part="${disk}1"
+        fi
+        readlink -f "$part"
+      args:
+        executable: /bin/bash
+      register: vast_docker_partition
+      changed_when: false
+      when: vast_apply_storage | bool
+
+    - name: Format Docker/Vast data partition as XFS
+      ansible.builtin.command:
+        cmd: "mkfs.xfs -f {{ vast_docker_partition.stdout }}"
+      when: vast_apply_storage | bool
+
+    - name: Create Docker/Vast mount point
+      ansible.builtin.file:
+        path: "{{ vast_docker_mount }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0711"
+      when: vast_apply_storage | bool
+
+    - name: Add Docker/Vast data disk to fstab and mount it
+      ansible.builtin.shell: |
+        set -euo pipefail
+        part={{ vast_docker_partition.stdout | quote }}
+        uuid="$(blkid -s UUID -o value "$part")"
+        mkdir -p {{ vast_docker_mount | quote }}
+        cp /etc/fstab /etc/fstab.vast-host-installer.bak.$(date +%Y%m%d%H%M%S)
+        grep -v -F " {{ vast_docker_mount }} " /etc/fstab > /etc/fstab.tmp
+        printf 'UUID=%s %s xfs %s 0 2\n' "$uuid" {{ vast_docker_mount | quote }} {{ vast_storage_mount_opts | quote }} >> /etc/fstab.tmp
+        mv /etc/fstab.tmp /etc/fstab
+        mount {{ vast_docker_mount | quote }}
+      args:
+        executable: /bin/bash
+      when: vast_apply_storage | bool
+
+    - name: Configure apt for noninteractive installer runs
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/90vast-host-installer-noninteractive
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          Dpkg::Options {
+            "--force-confdef";
+            "--force-confold";
+          };
+          APT::Get::Assume-Yes "true";
+          APT::Get::Show-Upgraded "true";
+
+    - name: Disable unattended apt timers that can fight host setup
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+        masked: true
+        state: stopped
+      failed_when: false
+      loop:
+        - apt-daily.timer
+        - apt-daily.service
+        - apt-daily-upgrade.timer
+        - apt-daily-upgrade.service
+      when: vast_disable_unattended_apt | bool
+
+    - name: Update/upgrade apt packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+        NEEDRESTART_MODE: a
+      when: vast_run_apt_upgrade | bool
+
+    - name: Install base host packages
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - mokutil
+          - nethogs
+          - nvme-cli
+          - parted
+          - smartmontools
+          - software-properties-common
+          - ubuntu-drivers-common
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+
+    - name: Install Ubuntu 22.04 HWE kernel and headers
+      ansible.builtin.apt:
+        name:
+          - linux-generic-hwe-22.04
+          - linux-headers-generic-hwe-22.04
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: vast_install_hwe_kernel | bool
+      register: vast_hwe_kernel_install
+
+    - name: Reboot after HWE kernel install if it changed anything
+      ansible.builtin.reboot:
+        msg: "Rebooting after Ubuntu HWE kernel install"
+        reboot_timeout: 900
+      when:
+        - vast_install_hwe_kernel | bool
+        - vast_reboot_after_hwe | bool
+        - vast_hwe_kernel_install is changed
+
+    - name: Install Docker apt key
+      ansible.builtin.shell: |
+        set -euo pipefail
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg.tmp
+        mv /etc/apt/keyrings/docker.gpg.tmp /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+      args:
+        executable: /bin/bash
+        creates: /etc/apt/keyrings/docker.gpg
+      when: vast_install_docker | bool
+
+    - name: Install Docker apt repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        owner: root
+        group: root
+        mode: "0644"
+        content: "deb [arch={{ ansible_facts['architecture'] | replace('x86_64','amd64') }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable\n"
+      when: vast_install_docker | bool
+
+    - name: Install Docker engine
+      ansible.builtin.apt:
+        name:
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-ce
+          - docker-ce-cli
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: vast_install_docker | bool
+
+    - name: Enable Docker
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+      when: vast_install_docker | bool
+
+    - name: Warn if Secure Boot is enabled
+      ansible.builtin.command: mokutil --sb-state
+      register: vast_secure_boot
+      changed_when: false
+      failed_when: false
+      when: vast_install_nvidia_driver | bool
+
+    - name: Save Secure Boot warning if needed
+      ansible.builtin.copy:
+        dest: "{{ vast_state_dir }}/secure-boot-warning.txt"
+        owner: root
+        group: root
+        mode: "0644"
+        content: "Secure Boot may be enabled. NVIDIA kernel modules may not load until Secure Boot is disabled or modules are enrolled.\n{{ vast_secure_boot.stdout | default('') }}\n"
+      when:
+        - vast_install_nvidia_driver | bool
+        - vast_secure_boot.stdout is defined
+        - vast_secure_boot.stdout is search('enabled')
+
+    - name: Optionally purge existing NVIDIA packages
+      ansible.builtin.apt:
+        name: "nvidia-*"
+        state: absent
+        purge: true
+        autoremove: true
+      when:
+        - vast_install_nvidia_driver | bool
+        - vast_purge_existing_nvidia | bool
+
+    - name: Detect recommended NVIDIA driver package
+      ansible.builtin.shell: |
+        set -euo pipefail
+        ubuntu-drivers devices 2>/dev/null | awk '/recommended/ {print $3; exit} /nvidia-driver-[0-9]+/ && !pkg {pkg=$3} END {if (!found && pkg) print pkg}'
+      args:
+        executable: /bin/bash
+      register: vast_nvidia_pkg
+      changed_when: false
+      failed_when: false
+      when: vast_install_nvidia_driver | bool
+
+    - name: Install recommended NVIDIA driver package
+      ansible.builtin.apt:
+        name: "{{ vast_nvidia_pkg.stdout }}"
+        state: present
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when:
+        - vast_install_nvidia_driver | bool
+        - vast_nvidia_pkg.stdout | length > 0
+
+    - name: Install NVIDIA container toolkit key/repo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg.tmp
+        mv /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg.tmp /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+        curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+          | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+          > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+      args:
+        executable: /bin/bash
+      when: vast_install_nvidia_container_toolkit | bool
+
+    - name: Install NVIDIA container toolkit
+      ansible.builtin.apt:
+        name: nvidia-container-toolkit
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: vast_install_nvidia_container_toolkit | bool
+
+    - name: Configure Docker NVIDIA runtime
+      ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
+      register: vast_nvidia_ctk
+      changed_when: vast_nvidia_ctk.rc == 0
+      failed_when: false
+      when: vast_install_nvidia_container_toolkit | bool
+
+    - name: Restart Docker after NVIDIA runtime config
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+      when:
+        - vast_install_docker | bool
+        - vast_install_nvidia_container_toolkit | bool
+
+    - name: Reboot after NVIDIA driver install if requested
+      ansible.builtin.reboot:
+        msg: "Rebooting after NVIDIA driver setup"
+        reboot_timeout: 900
+      when:
+        - vast_install_nvidia_driver | bool
+        - vast_reboot_after_nvidia | bool
+
+    - name: Install existing-Ubuntu Vast host helper tools
+      ansible.builtin.command:
+        cmd: "bash {{ vast_host_installer_path }}/scripts/install-vast-host-tools.sh"
+      when: vast_install_host_tools | bool
+      changed_when: true
+
+    - name: Optionally install GPU fan control helper
+      ansible.builtin.command: vast_install_gpu_fan_control
+      register: vast_gpu_fan_control
+      changed_when: true
+      failed_when: false
+      when: vast_install_gpu_fan_control | bool
+
+    - name: Write manual Vast bootstrap helper script when command is supplied
+      ansible.builtin.copy:
+        dest: /root/run-vast-bootstrap.sh
+        owner: root
+        group: root
+        mode: "0700"
+        content: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          {{ vast_install_command }}
+      when:
+        - vast_install_command | length > 0
+        - not (vast_run_vast_bootstrap | bool)
+
+    - name: Run supplied Vast bootstrap command only when explicitly enabled
+      ansible.builtin.shell: |
+        set -euo pipefail
+        {{ vast_install_command }}
+      args:
+        executable: /bin/bash
+      register: vast_bootstrap_result
+      no_log: true
+      when:
+        - vast_run_vast_bootstrap | bool
+        - vast_install_command | length > 0
+
+    - name: Run readiness check and save result
+      ansible.builtin.shell: |
+        set -o pipefail
+        if command -v vast_ready_check >/dev/null 2>&1; then
+          vast_ready_check > {{ vast_state_dir | quote }}/ansible-vast-ready-check.txt 2>&1
+        else
+          echo "vast_ready_check is not installed" > {{ vast_state_dir | quote }}/ansible-vast-ready-check.txt
+          exit 1
+        fi
+      args:
+        executable: /bin/bash
+      register: vast_ready_check_result
+      changed_when: false
+      failed_when: false
+      when: vast_run_readiness_check | bool
+
+    - name: Write Ansible v1 completion notes
+      ansible.builtin.copy:
+        dest: "{{ vast_state_dir }}/ansible-v1-next-steps.txt"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          Vast Host Installer Ansible v1 finished.
+
+          Source path:
+            {{ vast_host_installer_path }}
+
+          Read-only installer plan:
+            sudo cat {{ vast_state_dir }}/ansible-plan-preview.txt
+
+          Readiness check output:
+            sudo cat {{ vast_state_dir }}/ansible-vast-ready-check.txt
+
+          Host summary, if installed:
+            vast_install_summary
+
+          If you did not run Vast bootstrap through Ansible, run a fresh Vast.ai host install command manually from SSH/console.
+          If /root/run-vast-bootstrap.sh exists, review it first, then run:
+            sudo /root/run-vast-bootstrap.sh
+
+          If you want the original guided source installer instead:
+            sudo vast-host-installer-source --first-run
+
+    - name: Print next steps
+      ansible.builtin.debug:
+        msg:
+          - "Ansible v1 finished."
+          - "Plan: sudo cat {{ vast_state_dir }}/ansible-plan-preview.txt"
+          - "Readiness: sudo cat {{ vast_state_dir }}/ansible-vast-ready-check.txt"
+          - "Summary: vast_install_summary"
+          - "Manual Vast bootstrap helper, if created: sudo /root/run-vast-bootstrap.sh"

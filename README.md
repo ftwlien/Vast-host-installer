@@ -30,6 +30,202 @@ Current recommended ISO:
 
 ---
 
+## Choose your install path
+
+There are two first-class ways to build a Vast host with this project.
+
+- **Path A — Custom ISO:** easiest, most guided, best for people who want the whole thing handled.
+- **Path B — Official Ubuntu + installer script:** best for technical users who do not want to trust a custom ISO.
+
+Both paths use the same guided Vast Host Installer UI after Ubuntu is installed: same logo, same phases, same reboot/resume flow, same final report.
+
+---
+
+## Path A — Easy mode: boot the custom ISO
+
+Use this if you want the simplest install.
+
+1. Download the release ISO.
+2. Flash it to a USB stick.
+3. Boot the rig from USB.
+4. Follow the guided installer.
+5. After each reboot, run the command shown on screen.
+
+The ISO path handles Ubuntu install + Vast host setup in one guided flow.
+
+This is the best choice if you want the installer to prepare the standard single-disk layout automatically:
+
+```text
+EFI:              1G
+/:                100G ext4
+/var/lib/docker:  rest of disk, XFS/prjquota
+```
+
+---
+
+## Path B — Trust-first mode: official Ubuntu + installer script
+
+Use this if you are more technical, or if you do not want to boot a custom ISO from the internet.
+
+In this path, you install official Ubuntu Server yourself from Canonical, create the storage layout during Ubuntu install, then run this open-source installer from GitHub.
+
+This gives you the same ISO-style guided Vast setup UI, but without trusting a prebuilt ISO image. You can inspect the code, pin a release tag, and run it from source.
+
+### 1. Install official Ubuntu Server
+
+Download and install official Ubuntu Server 22.04.5 from Canonical.
+
+When the Ubuntu installer asks about storage, use one of the layouts below.
+
+### Single-disk layout
+
+For a one-disk Vast host, create the Docker/Vast partition during Ubuntu install.
+
+```text
+EFI:              1G
+/:                100G ext4
+/var/lib/docker:  rest of disk as a separate partition
+```
+
+Do **not** install Ubuntu using one giant `/` partition if this is meant to be a production Vast host. The official-Ubuntu path will not shrink/repartition a mounted root filesystem later.
+
+### Dual-disk layout
+
+For a two-disk Vast host:
+
+```text
+OS disk:
+  EFI: 1G
+  /:   100G ext4
+
+Data disk:
+  Leave empty/unmounted
+```
+
+The installer will later offer to wipe the non-root data disk and mount it as:
+
+```text
+/var/lib/docker
+```
+
+The root/OS disk will not be touched.
+
+### 2. Boot into Ubuntu
+
+After Ubuntu finishes, boot into the installed system and make sure you have internet and sudo.
+
+If you are on Proxmox or another VM platform, remove/eject the Ubuntu ISO and boot from disk. Use a full stop/start, not just reset, so the VM does not boot back into the installer.
+
+### 3. Clone and inspect this repo
+
+```bash
+git clone https://github.com/ftwlien/Vast-host-installer.git
+cd Vast-host-installer
+git checkout <release-tag>
+```
+
+Optional but recommended:
+
+```bash
+less scripts/install-clean-ubuntu-vast.sh
+```
+
+Use a release tag for auditability. Avoid running moving `main` on production rigs unless you intentionally want the latest development version.
+
+### 4. Run the official-Ubuntu bootstrap
+
+```bash
+sudo bash scripts/install-clean-ubuntu-vast.sh
+```
+
+This stages the installer at:
+
+```text
+/opt/vast-host-installer
+```
+
+Then it launches the same guided first-run flow used by the ISO, with one extra storage-safety mode:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
+```
+
+### 5. Storage wizard
+
+Before Phase 1 starts, the installer shows a storage wizard.
+
+It can:
+
+- use an existing `/var/lib/docker` partition if it is already mounted correctly
+- format and mount a pre-made non-root partition as `/var/lib/docker` after typed confirmation
+- on exactly 2 disks, wipe the non-root data disk and mount it as `/var/lib/docker` after typed confirmation
+- stop and show the required Ubuntu partition layout
+
+It will not:
+
+- offer “keep Docker on `/`” for the production official-Ubuntu path
+- live-repartition the mounted root disk
+- guess a wipe target on 3+ disk systems
+
+Destructive storage actions require typing the exact target, for example:
+
+```text
+WIPE /dev/sdb
+```
+
+or:
+
+```text
+WIPE /dev/sda3
+```
+
+### 6. Continue the same ISO-style phases
+
+After Phase 1, reboot when told, then run:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
+After the NVIDIA phase and reboot, run the preflight check:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --preflight-phase3
+```
+
+Then start Phase 3:
+
+```bash
+sudo /opt/vast-host-installer/bin/vast-host-installer --resume
+```
+
+Phase 3 runs the Vast.ai install command, installs selected extras, verifies Docker/NVIDIA/Vast services, and prints the final report.
+
+### Trust model
+
+The ISO is the easiest path, but it asks the user to trust a prebuilt boot image.
+
+The official-Ubuntu path is better for skeptical or technical users because they can:
+
+- download Ubuntu directly from Canonical
+- clone this repository themselves
+- inspect the scripts before running them
+- pin a release tag or commit
+- review diffs between versions
+- run the installer from source
+
+This does not remove all trust. The installer still runs as root because configuring Docker, NVIDIA, storage, and Vast requires root. But it is easier to audit than a prebuilt ISO.
+
+Do not confuse this full installer path with the helper-only existing-rig script:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
+```
+
+That command only installs helper commands on an already-running machine. It is not the full Vast host setup flow.
+
+---
+
 ## Why this ISO is better than a normal Ubuntu install
 
 A normal Ubuntu installer gives you an operating system and then leaves you with a pile of manual GPU-host work:
@@ -509,6 +705,7 @@ When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
 
 ---
 
+
 ## Existing Ubuntu rig installer
 
 For rigs that are **already installed and running Ubuntu**, you do not need the ISO.
@@ -534,6 +731,7 @@ This adds:
 - `sudo vast_system_update`
 - `sudo vast_cleanup`
 - `sudo vast_port_range` / `sudo vast_port_check`
+- `sudo vast_prepare_storage --plan`
 - `cpu_burn`
 - `ram_burn`
 - `gpu_burn`
@@ -559,6 +757,20 @@ This installs the same headless NVIDIA Xorg + `gpu-fan.service` fan curve used b
 This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
 
 Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
+
+### Optional storage helper for clean-Ubuntu installs
+
+The existing-Ubuntu tools include a guided storage helper:
+
+```bash
+sudo vast_prepare_storage --plan
+sudo vast_prepare_storage
+```
+
+Policy:
+
+- **1 disk:** the helper will not live-repartition the mounted root disk. Use the ISO/autoinstall path if you want automatic one-disk `100G /` plus XFS `/var/lib/docker` split before Ubuntu is installed.
+- **2 disks:** Ubuntu/root must already be on the smaller disk. The helper can wipe the larger non-root disk, format it as XFS, and mount it at `/var/lib/docker` with `prjquota` after typed confirmation.
 
 ---
 

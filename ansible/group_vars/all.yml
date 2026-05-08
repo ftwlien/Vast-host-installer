@@ -1,0 +1,44 @@
+---
+# Ansible v1: clean official Ubuntu -> Vast-ready host setup.
+# Pin this to a release tag or commit for maximum auditability.
+vast_host_installer_repo_url: "https://github.com/ftwlien/Vast-host-installer.git"
+vast_host_installer_repo_version: "main"
+vast_host_installer_path: "/opt/vast-host-installer"
+vast_state_dir: "/var/lib/vast-host-installer"
+
+# Storage policy.
+# Manual Ubuntu installer handles the OS/root disk.
+# Ansible may prepare a separate Docker/Vast data disk only when explicitly enabled.
+vast_apply_storage: false
+vast_docker_disk: ""          # Example: /dev/nvme1n1. Must not be the root disk.
+vast_docker_mount: "/var/lib/docker"
+vast_storage_fstype: "xfs"
+vast_storage_mount_opts: "defaults,pquota,prjquota"
+
+# Base system setup.
+vast_run_apt_upgrade: true
+vast_disable_unattended_apt: true
+
+# Kernel/Docker/NVIDIA setup.
+# HWE is recommended for GPU/Vast hosts on Ubuntu 22.04. A normal apt upgrade
+# does not necessarily switch a GA-kernel install onto the HWE track.
+vast_install_hwe_kernel: true
+vast_reboot_after_hwe: true
+vast_install_docker: true
+vast_install_nvidia_driver: true
+vast_purge_existing_nvidia: false
+vast_reboot_after_nvidia: true
+vast_install_nvidia_container_toolkit: true
+
+# Host helper/tooling setup from this repo.
+vast_install_host_tools: true
+vast_install_gpu_fan_control: false
+
+# Vast.ai bootstrap.
+# Keep false by default because the Vast host installer is commonly interactive.
+# Preferred flow: paste/run your fresh Vast.ai install command manually on the host after Ansible finishes.
+vast_run_vast_bootstrap: false
+vast_install_command: ""      # Optional full fresh Vast.ai host install command.
+
+# Validation.
+vast_run_readiness_check: true
