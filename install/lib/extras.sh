@@ -792,6 +792,13 @@ install -d -m 0755 /var/lib/vastai_kaalia
 printf '%s
 ' "$range" > /var/lib/vastai_kaalia/host_port_range
 chmod 0644 /var/lib/vastai_kaalia/host_port_range
+summary_file="/var/lib/vast-host-installer/final-summary.txt"
+if [[ -f "$summary_file" ]]; then
+  tmp_summary="$(mktemp)"
+  awk -v range="$range" '{ if ($0 ~ /^✓ Current: /) print "✓ Current: " range; else print $0 }' "$summary_file" > "$tmp_summary"
+  cat "$tmp_summary" > "$summary_file"
+  rm -f "$tmp_summary"
+fi
 echo "Vast.ai host port range set to: $(cat /var/lib/vastai_kaalia/host_port_range)"
 echo
 echo "What this is:"

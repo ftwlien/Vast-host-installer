@@ -712,6 +712,9 @@ while IFS= read -r line; do
     "VAST HOST - "*|"Generated: "*|"") continue ;;
   esac
   line="${line#✓ }"
+  if [[ "$section" == "port" && "$line" == Current:* ]]; then
+    line="Current: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+  fi
   case "$section" in
     done) done_lines+=("$line") ;;
     port) port_lines+=("$line") ;;
