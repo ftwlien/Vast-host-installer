@@ -18,7 +18,7 @@ Download the latest release here:
 
 Watch the full setup walkthrough here:
 
-<https://www.youtube.com/watch?v=PCbVXb28pO0>
+<https://www.youtube.com/watch?v=CbRVg3e9Duc>
 
 Current recommended ISO:
 
