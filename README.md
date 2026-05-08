@@ -67,7 +67,7 @@ EFI:              1G
 
 Use this if you are more technical, or if you do not want to boot a custom ISO from the internet.
 
-In this path, you install official Ubuntu Server yourself from Canonical, create the storage layout during Ubuntu install, then run this open-source installer from GitHub.
+In this path, you install official Ubuntu Server yourself from Canonical, then run this open-source installer from GitHub.
 
 This gives you the same ISO-style guided Vast setup UI, but without trusting a prebuilt ISO image. You can inspect the code, pin a release tag, and run it from source.
 
@@ -75,40 +75,9 @@ This gives you the same ISO-style guided Vast setup UI, but without trusting a p
 
 Download and install official Ubuntu Server 22.04.5 from Canonical.
 
-When the Ubuntu installer asks about storage, use one of the layouts below.
+When the Ubuntu installer asks about storage, use the normal official Ubuntu storage flow for your machine.
 
-### Single-disk layout
-
-For a one-disk Vast host, create the Docker/Vast partition during Ubuntu install.
-
-```text
-EFI:              1G
-/:                100G ext4
-/var/lib/docker:  rest of disk as a separate partition
-```
-
-Do **not** install Ubuntu using one giant `/` partition if this is meant to be a production Vast host. The official-Ubuntu path will not shrink/repartition a mounted root filesystem later.
-
-### Dual-disk layout
-
-For a two-disk Vast host:
-
-```text
-OS disk:
-  EFI: 1G
-  /:   100G ext4
-
-Data disk:
-  Leave empty/unmounted
-```
-
-The installer will later offer to wipe the non-root data disk and mount it as:
-
-```text
-/var/lib/docker
-```
-
-The root/OS disk will not be touched.
+The official-Ubuntu bootstrap does **not** create, format, wipe, or mount Docker/Vast storage partitions. It leaves storage handling to the official Vast host installer/tooling.
 
 ### 2. Boot into Ubuntu
 
@@ -152,35 +121,11 @@ Then it launches the same guided first-run flow used by the ISO, with one extra 
 sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
 ```
 
-### 5. Storage wizard
+### 5. Storage behavior
 
-Before Phase 1 starts, the installer shows a storage wizard.
+There is no storage wizard in the official-Ubuntu path.
 
-It can:
-
-- use an existing `/var/lib/docker` partition if it is already mounted correctly
-- create a new `/var/lib/docker` partition from remaining free space when `/` is already ~100G
-- format and mount a pre-made non-root partition as `/var/lib/docker` after typed confirmation
-- on exactly 2 disks, wipe the non-root data disk and mount it as `/var/lib/docker` after typed confirmation
-- stop and show the required Ubuntu partition layout
-
-It will not:
-
-- offer “keep Docker on `/`” for the production official-Ubuntu path
-- shrink/live-repartition the mounted root disk
-- guess a wipe target on 3+ disk systems
-
-Destructive storage actions require typing the exact target, for example:
-
-```text
-WIPE /dev/sdb
-```
-
-or:
-
-```text
-WIPE /dev/sda3
-```
+The bootstrapper does **not** create, format, wipe, or mount Docker/Vast storage partitions. Storage is left unchanged for the official Vast host installer/tooling.
 
 ### 6. Continue the same ISO-style phases
 

@@ -350,7 +350,7 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
 
   banner "Phase 1 - Storage and System Prep"
   if [[ "$OFFICIAL_UBUNTU_MODE" -eq 1 ]]; then
-    official_ubuntu_storage_wizard
+    log "official Ubuntu mode: leaving Docker/Vast storage layout unchanged; Vast installer will handle its own setup"
   elif storage_already_correct; then
     log "storage layout already matches the intended plan; skipping storage changes"
   else

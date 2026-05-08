@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Official-Ubuntu bootstrapper.
 # Stages the same installer used by the ISO, then launches the same first-run UI
-# with one extra safety mode: --official-ubuntu storage wizard.
+# in official-Ubuntu mode. This path does not repartition storage; Vast handles its own setup.
 
 REPO_URL="${VAST_HOST_INSTALLER_REPO_URL:-https://github.com/ftwlien/Vast-host-installer.git}"
 REPO_VERSION="${VAST_HOST_INSTALLER_REPO_VERSION:-main}"
@@ -23,17 +23,10 @@ then launches the same ISO first-run installer flow:
 
   sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
 
-The --official-ubuntu flag only changes storage safety:
-  - adds a storage wizard before Phase 1
-  - requires a separate Docker/Vast storage partition or data disk
-  - never live-repartitions the mounted root disk
-  - can use an already prepared non-root partition for /var/lib/docker
-  - can wipe a clear non-root 2nd disk only after typed confirmation
-
-For 1-disk production hosts, create this during Ubuntu install:
-  EFI:              1G
-  /:                100G ext4
-  /var/lib/docker:  rest of disk as separate partition
+The --official-ubuntu flag means:
+  - use the same guided ISO-style phases
+  - do not repartition or format storage from this bootstrapper
+  - leave Docker/Vast storage setup to the official Vast host installer/tooling
 
 After that, the flow is the same as the ISO:
   Phase 1 -> reboot -> --resume
@@ -105,7 +98,7 @@ Vast Host Installer is staged.
 Run/continuation command:
   sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
 
-This uses the same ISO installer screens/phases, with the official-Ubuntu storage wizard added before Phase 1.
+This uses the same ISO installer screens/phases. It does not create, format, wipe, or mount Docker/Vast storage partitions.
 EOF
 
 if [[ "$STAGE_ONLY" -eq 1 ]]; then
