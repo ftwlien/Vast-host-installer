@@ -121,8 +121,10 @@ If you are on Proxmox or another VM platform, remove/eject the Ubuntu ISO and bo
 ```bash
 git clone https://github.com/ftwlien/Vast-host-installer.git
 cd Vast-host-installer
-git checkout <release-tag>
+git checkout main
 ```
+
+`main` is the current working branch. For production/audited installs, use a release tag when one is published, for example `git checkout v1.2.0`.
 
 Optional but recommended:
 
@@ -130,7 +132,7 @@ Optional but recommended:
 less scripts/install-clean-ubuntu-vast.sh
 ```
 
-Use a release tag for auditability. Avoid running moving `main` on production rigs unless you intentionally want the latest development version.
+For production/audited installs, prefer a release tag once available. Until then, `main` is the current install path.
 
 ### 4. Run the official-Ubuntu bootstrap
 
