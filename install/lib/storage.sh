@@ -78,8 +78,56 @@ PY
   log "$part is ready for Docker/Vast storage at /var/lib/docker"
 }
 
+storage_create_free_space_partition_for_docker() {
+  local disk="$1" before after part uuid opts confirm
+  [[ -b "$disk" ]] || die "disk does not exist: $disk"
+  prompt_box "This will create a NEW partition from the remaining free space on $disk, format it as XFS, and mount it at /var/lib/docker. It will not shrink or repartition the mounted root filesystem."
+  echo "Type exactly: CREATE $disk"
+  read -r confirm
+  [[ "$confirm" == "CREATE $disk" ]] || die "Typed confirmation did not match; refusing partition creation."
+
+  mapfile -t before < <(lsblk -ln -o PATH,TYPE "$disk" | awk '$2=="part" {print $1}' | sort -u)
+  sudo apt install -y gdisk xfsprogs util-linux
+  sudo sgdisk -n 0:0:0 -t 0:8300 "$disk"
+  sudo partprobe "$disk" || true
+  sleep 2
+  mapfile -t after < <(lsblk -ln -o PATH,TYPE "$disk" | awk '$2=="part" {print $1}' | sort -u)
+  part=""
+  for candidate in "${after[@]}"; do
+    if ! printf '%s\n' "${before[@]}" | grep -qxF "$candidate"; then
+      part="$candidate"
+      break
+    fi
+  done
+  [[ -n "$part" && -b "$part" ]] || die "could not identify newly created partition on $disk"
+
+  sudo systemctl stop docker 2>/dev/null || true
+  sudo systemctl stop containerd 2>/dev/null || true
+  if findmnt /var/lib/docker >/dev/null 2>&1; then
+    sudo umount /var/lib/docker || true
+  fi
+  sudo mkdir -p /var/lib/docker
+  sudo chmod 0711 /var/lib/docker
+  sudo mkfs.xfs -f "$part"
+  uuid="$(sudo blkid -s UUID -o value "$part")"
+  [[ -n "$uuid" ]] || die "could not resolve UUID for $part"
+  sudo cp /etc/fstab "/etc/fstab.vast-host-installer.$(date +%Y%m%d-%H%M%S)"
+  sudo python3 - <<PY
+from pathlib import Path
+p = Path('/etc/fstab')
+entry = 'UUID=${uuid} /var/lib/docker xfs defaults,nofail,pquota,prjquota 0 2'
+lines = [line for line in p.read_text().splitlines() if ' /var/lib/docker ' not in line]
+lines.append(entry)
+p.write_text('\n'.join(lines) + '\n')
+PY
+  sudo mount /var/lib/docker
+  opts="$(findmnt -no OPTIONS /var/lib/docker)"
+  [[ "$(findmnt -no FSTYPE /var/lib/docker)" == "xfs" && "$opts" == *prjquota* ]] || die "failed to mount /var/lib/docker as XFS with prjquota"
+  log "$part is ready for Docker/Vast storage at /var/lib/docker"
+}
+
 official_ubuntu_storage_wizard() {
-  local root root_src root_real all_disks all_parts nonroot_count biggest biggest_size d size i part mount fstype parent choice confirm whole_disk_choice stop_choice
+  local root root_src root_real all_disks all_parts nonroot_count biggest biggest_size d size part mount fstype parent confirm root_fs_bytes disk_bytes_total candidates
   root="$(get_root_disk)"
   root_src="$(findmnt -n -o SOURCE /)"
   root_real="$(readlink -f "$root_src")"
@@ -87,8 +135,18 @@ official_ubuntu_storage_wizard() {
   mapfile -t all_parts < <(lsblk -ln -o PATH,TYPE | awk '$2=="part" {print $1}' | xargs -r -n1 readlink -f | sort -u)
 
   question "Storage setup"
-  prompt_box "Official Ubuntu mode detected. The installer will look and continue like the ISO flow, but storage rules are stricter because Ubuntu is already installed. It will never live-repartition the mounted root disk."
+  prompt_box "Official Ubuntu mode detected. Checking for production Docker/Vast storage. The installer will not shrink or live-repartition the mounted root disk."
   lsblk -e7 -o NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINTS,MODEL
+
+  if findmnt /var/lib/docker >/dev/null 2>&1; then
+    fstype="$(findmnt -no FSTYPE /var/lib/docker)"
+    opts="$(findmnt -no OPTIONS /var/lib/docker)"
+    if [[ "$fstype" == "xfs" && "$opts" == *prjquota* ]]; then
+      log "/var/lib/docker is already mounted as XFS with prjquota; storage is ready"
+      return 0
+    fi
+    die "/var/lib/docker is mounted, but not as XFS with prjquota. Fix storage manually, then rerun."
+  fi
 
   nonroot_count=0
   biggest=""
@@ -103,48 +161,33 @@ official_ubuntu_storage_wizard() {
     fi
   done
 
-  echo
-  echo "Storage choices:"
-  i=1
+  candidates=()
   for part in "${all_parts[@]}"; do
     [[ "$part" == "$root_real" ]] && continue
     mount="$(storage_mountpoint_for_source "$part")"
     [[ "$mount" == "/" || "$mount" == "/boot" || "$mount" == "/boot/efi" || "$mount" == "[SWAP]" ]] && continue
+    candidates+=("$part")
+  done
+
+  if (( ${#candidates[@]} == 1 )); then
+    part="${candidates[0]}"
     parent="$(storage_parent_disk_for_partition "$part")"
     fstype="$(storage_fstype_for_source "$part")"
-    printf '  %d) Use existing partition %-14s parent=%s fstype=%s mount=%s\n' "$i" "$part" "${parent:-unknown}" "${fstype:-none}" "${mount:-none}"
-    i=$((i + 1))
-  done
+    prompt_box "Found one non-root partition for Docker/Vast storage: $part parent=${parent:-unknown} fstype=${fstype:-none}."
+    storage_format_existing_partition_for_docker "$part"
+    return 0
+  fi
+
+  root_fs_bytes="$(df -B1 --output=size / 2>/dev/null | tail -n1 | tr -dc '0-9')"
+  disk_bytes_total="$(blockdev --getsize64 "$root" 2>/dev/null || echo 0)"
+  if (( ${#all_disks[@]} == 1 )) && [[ -n "$root_fs_bytes" ]] && (( disk_bytes_total > root_fs_bytes + 50*1024*1024*1024 )); then
+    prompt_box "Detected single-disk official Ubuntu layout with root around 100G and free space remaining. The installer can create the /var/lib/docker partition from the unused space."
+    storage_create_free_space_partition_for_docker "$root"
+    return 0
+  fi
 
   if (( ${#all_disks[@]} == 2 && nonroot_count == 1 )); then
-    printf '  %d) Wipe whole non-root data disk %s and mount it at /var/lib/docker\n' "$i" "$biggest"
-    whole_disk_choice="$i"
-    i=$((i + 1))
-  else
-    whole_disk_choice=""
-  fi
-  stop_choice="$i"
-  printf '  %d) Stop/cancel and show required Ubuntu partition layout\n' "$stop_choice"
-
-  echo
-  read -r -p "Choose storage option number: " choice
-  [[ "$choice" =~ ^[0-9]+$ ]] || die "Invalid storage choice."
-
-  i=1
-  for part in "${all_parts[@]}"; do
-    [[ "$part" == "$root_real" ]] && continue
-    mount="$(storage_mountpoint_for_source "$part")"
-    [[ "$mount" == "/" || "$mount" == "/boot" || "$mount" == "/boot/efi" || "$mount" == "[SWAP]" ]] && continue
-    if [[ "$choice" == "$i" ]]; then
-      storage_format_existing_partition_for_docker "$part"
-      return 0
-    fi
-    i=$((i + 1))
-  done
-
-  if [[ -n "$whole_disk_choice" && "$choice" == "$whole_disk_choice" ]]; then
-    [[ -b "$biggest" ]] || die "data disk not found: $biggest"
-    prompt_box "This will WIPE the whole non-root disk $biggest and use it for /var/lib/docker. Root disk $root will not be touched."
+    prompt_box "Detected two-disk official Ubuntu layout. The installer can wipe the non-root data disk $biggest and mount it at /var/lib/docker."
     echo "Type exactly: WIPE $biggest"
     read -r confirm
     [[ "$confirm" == "WIPE $biggest" ]] || die "Typed confirmation did not match; refusing storage wipe."
@@ -153,22 +196,21 @@ official_ubuntu_storage_wizard() {
     return 0
   fi
 
-  if [[ "$choice" == "$stop_choice" ]]; then
-    cat <<'EOF'
+  cat <<'EOF'
 
-Required 1-disk official-Ubuntu layout:
+Required official-Ubuntu storage layout was not found.
+
+Single disk:
   EFI:              1G
   /:                100G ext4
-  /var/lib/docker:  rest of disk, separate partition
+  /var/lib/docker:  rest of disk as separate partition, or leave the rest as free space so this installer can create it
 
-Create that during Ubuntu install, then rerun:
-  sudo /opt/vast-host-installer/bin/vast-host-installer --first-run --official-ubuntu
+Dual disk:
+  OS disk:          EFI + 100G /
+  Data disk:        empty/unmounted, to be mounted as /var/lib/docker
 EOF
-    die "Storage setup cancelled. Reinstall/partition Ubuntu first for the production 1-disk layout."
-  fi
-  die "Invalid storage choice."
+  die "Storage is not ready for the production official-Ubuntu path."
 }
-
 storage_already_correct() {
   local layout root_size docker_source root_source
   layout="$(classify_layout)"

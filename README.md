@@ -159,6 +159,7 @@ Before Phase 1 starts, the installer shows a storage wizard.
 It can:
 
 - use an existing `/var/lib/docker` partition if it is already mounted correctly
+- create a new `/var/lib/docker` partition from remaining free space when `/` is already ~100G
 - format and mount a pre-made non-root partition as `/var/lib/docker` after typed confirmation
 - on exactly 2 disks, wipe the non-root data disk and mount it as `/var/lib/docker` after typed confirmation
 - stop and show the required Ubuntu partition layout
@@ -166,7 +167,7 @@ It can:
 It will not:
 
 - offer “keep Docker on `/`” for the production official-Ubuntu path
-- live-repartition the mounted root disk
+- shrink/live-repartition the mounted root disk
 - guess a wipe target on 3+ disk systems
 
 Destructive storage actions require typing the exact target, for example:
