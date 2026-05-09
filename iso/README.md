@@ -60,6 +60,17 @@ sudo /opt/vast-host-installer/bin/vast-host-installer --resume
 ```
 
 10. When Phase 3 finishes, read the final install report and test/list the machine in Vast.ai.
+11. After the final operator user is confirmed working with `sudo`, remove the temporary ISO bootstrap user:
+
+```bash
+sudo deluser --remove-home vastbootstrap
+```
+
+Then verify only the intended admin user remains in the sudo group:
+
+```bash
+getent group sudo
+```
 
 Optional extras can be installed or repaired later without rerunning the full setup:
 

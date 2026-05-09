@@ -8,6 +8,7 @@ while [[ $# -gt 0 ]]; do
 Usage: sudo ./scripts/install-vast-host-tools.sh
 
 Installs standalone Vast host helper commands for already-running Ubuntu rigs:
+- vastai CLI wrapper
 - vast_install_summary
 - storage_layout
 - vast_ready_check
@@ -42,10 +43,43 @@ install -d -m 0755 /usr/local/bin /var/lib/vast-host-installer
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil parted gdisk xfsprogs
+  apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil parted gdisk xfsprogs python3-pip
   apt-get install -y speedtest-cli || true
   apt-get install -y stress-ng stressapptest memtest86+ git build-essential nvidia-cuda-toolkit
 fi
+
+target_user="${SUDO_USER:-}"
+if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+  target_user="$(awk -F: '$3 >= 1000 && $1 != "nobody" && $7 !~ /(nologin|false)$/ {print $1; exit}' /etc/passwd)"
+fi
+target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+if [[ -z "$target_user" || -z "$target_home" ]]; then
+  echo "Could not determine target user for Vast CLI install" >&2
+  exit 1
+fi
+
+echo "Installing Vast CLI for $target_user..."
+sudo -H -u "$target_user" python3 -m pip install --user --upgrade vastai
+sudo -H -u "$target_user" mkdir -p "$target_home/.local/bin"
+if ! sudo -H -u "$target_user" grep -Fq 'export PATH="$HOME/.local/bin:$PATH"' "$target_home/.bashrc" 2>/dev/null; then
+  echo 'export PATH="$HOME/.local/bin:$PATH"' | sudo -H -u "$target_user" tee -a "$target_home/.bashrc" >/dev/null
+fi
+
+vastai_bin="$target_home/.local/bin/vastai"
+if [[ ! -x "$vastai_bin" ]]; then
+  echo "Vast CLI install failed: $vastai_bin was not created" >&2
+  exit 1
+fi
+
+cat >/usr/local/bin/vastai <<EOF
+#!/bin/sh
+if [ "\$(id -un)" = "$target_user" ]; then
+  exec "$vastai_bin" "\$@"
+fi
+exec sudo -H -u "$target_user" "$vastai_bin" "\$@"
+EOF
+chmod 0755 /usr/local/bin/vastai
+sudo -H -u "$target_user" "$vastai_bin" --help >/dev/null 2>&1 || { echo "Vast CLI exists but does not run as $target_user" >&2; exit 1; }
 
 cat >/usr/local/bin/storage_layout <<'SCRIPT'
 #!/usr/bin/env bash
@@ -1123,7 +1157,7 @@ polish=(
   "sudo vast_ready_check - Full Vast host readiness check"
   "sudo disk_health - Disk health and filesystem check"
   "sudo docker system df - Docker disk usage"
-  "sudo vast_system_update - Safe system update helper"
+  "sudo vast_system_update - Manual updates when idle"
   "sudo vast_cleanup - Clean idle/unlisted host leftovers"
   "sudo vast_port_check - Verify Vast host ports"
   "sudo vast_prepare_storage --plan - Preview Docker/Vast storage layout"
@@ -1138,6 +1172,130 @@ else
   polish+=("sudo vast_install_gpu_fan_control - Install aggressive GPU fan control")
 fi
 command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
+
+cat >/usr/local/bin/vast_post_install_cleanup <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+assume_yes=0
+remove_installer=0
+
+usage() {
+  cat <<'EOF'
+Usage: sudo vast_post_install_cleanup [--yes] [--remove-installer]
+
+Removes post-install ISO/bootstrap leftovers after the final sudo user works
+and the Vast host has been verified.
+
+Options:
+  --yes               Do not prompt before cleanup
+  --remove-installer  Also remove /opt/vast-host-installer and source helper
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) assume_yes=1 ;;
+    --remove-installer) remove_installer=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  exec sudo "$0" "$@"
+fi
+
+confirm() {
+  local prompt="$1" answer
+  if [[ "$assume_yes" -eq 1 ]]; then
+    return 0
+  fi
+  read -r -p "$prompt [y/N]: " answer
+  [[ "$answer" =~ ^[Yy]$|^[Yy][Ee][Ss]$ ]]
+}
+
+echo "Post-install security cleanup"
+echo "Run this only after your final sudo user works and Vast is verified."
+if ! confirm "Continue"; then
+  echo "Cancelled."
+  exit 0
+fi
+
+if getent passwd vastbootstrap >/dev/null 2>&1; then
+  deluser --remove-home vastbootstrap || true
+fi
+
+rm -f /var/lib/vast-host-installer/resume.env /tmp/vast-install.sh
+rm -rf /tmp/vast-install.*
+rm -f /var/log/installer/autoinstall-user-data /var/log/installer/user-data \
+  /var/lib/cloud/seed/nocloud*/user-data \
+  /var/lib/cloud/instance/user-data.txt \
+  /var/lib/cloud/instances/*/user-data.txt \
+  /autoinstall.yaml
+rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log \
+  /var/log/installer/subiquity* /var/log/installer/curtin*
+
+if [[ -f /etc/sudoers.d/rig-monitor-launcher ]]; then
+  sed -i '/^vastbootstrap[[:space:]]/d' /etc/sudoers.d/rig-monitor-launcher || true
+fi
+visudo -c
+
+systemctl disable --now vast-host-installer-first-run-notice.service vast-host-installer-auto-resume.service >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/vast-host-installer-first-run-notice.service \
+  /etc/systemd/system/vast-host-installer-auto-resume.service \
+  /etc/profile.d/vast-host-installer.sh
+systemctl daemon-reload
+
+rm -f /etc/apt/apt.conf.d/90vast-host-installer-noninteractive \
+  /etc/needrestart/conf.d/90-vast-host-installer.conf
+
+if [[ "$remove_installer" -eq 1 ]]; then
+  rm -rf /opt/vast-host-installer /usr/local/bin/vast-host-installer-source
+fi
+
+summary_file="/var/lib/vast-host-installer/final-summary.txt"
+if [[ -f "$summary_file" ]]; then
+  python3 - "$summary_file" <<'PY_SUMMARY_CLEANUP'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+out = []
+i = 0
+while i < len(lines):
+    if lines[i] == "Post-install security cleanup":
+        i += 1
+        while i < len(lines) and lines[i].startswith("✓ "):
+            i += 1
+        if i < len(lines) and lines[i] == "":
+            i += 1
+        continue
+    out.append(lines[i])
+    i += 1
+path.write_text("\n".join(out).rstrip() + "\n")
+PY_SUMMARY_CLEANUP
+fi
+
+echo
+echo "Cleanup complete. Current sudo group:"
+getent group sudo || true
+
+if command -v vast_install_summary >/dev/null 2>&1; then
+  echo
+  echo "Reopening clean install summary..."
+  exec vast_install_summary
+fi
+SCRIPT
+chmod 0755 /usr/local/bin/vast_post_install_cleanup
+bash -n /usr/local/bin/vast_post_install_cleanup
+
+bootstrap_cleanup=(
+  "Run only after your final sudo user works and Vast is verified"
+  "sudo vast_post_install_cleanup - Remove ISO/bootstrap leftovers"
+  "Optional: sudo vast_post_install_cleanup --remove-installer"
+  "Verify sudo users after cleanup: getent group sudo"
+)
 {
   echo "VAST HOST - PHASE 3 COMPLETE - VAST SETUP FINISHED"
   echo "Generated: $(date -Is)"
@@ -1173,6 +1331,9 @@ command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monit
   echo
   echo "Useful host polish commands"
   for line in "${polish[@]}"; do echo "✓ $line"; done
+  echo
+  echo "Post-install security cleanup"
+  for line in "${bootstrap_cleanup[@]}"; do echo "✓ $line"; done
   echo
   echo "Optional next steps - Vast CLI"
   echo "vastai --help"
@@ -1259,13 +1420,14 @@ install_report_box() {
   printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cli_lines=(); section=""
+done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); cli_lines=(); section=""
 while IFS= read -r line; do
   case "$line" in
     "What was done - full install report") section="done"; continue ;;
     "Vast.ai host port range") section="port"; continue ;;
     "Quick stress-test commands") section="quick"; continue ;;
     "Useful host polish commands") section="polish"; continue ;;
+    "Post-install security cleanup") section="cleanup"; continue ;;
     "Optional next steps - Vast CLI") section="cli"; continue ;;
     "VAST HOST - "*|"Generated: "*|"") continue ;;
   esac
@@ -1278,6 +1440,7 @@ while IFS= read -r line; do
     port) port_lines+=("$line") ;;
     quick) quick_lines+=("$line") ;;
     polish) polish_lines+=("$line") ;;
+    cleanup) cleanup_lines+=("$line") ;;
     cli) cli_lines+=("$line") ;;
   esac
 done < "$summary_file"
@@ -1294,13 +1457,16 @@ fi
 if [[ "${#polish_lines[@]}" -gt 0 ]]; then
   install_report_box "Useful host polish commands" "${polish_lines[@]}"
 fi
+if [[ "${#cleanup_lines[@]}" -gt 0 ]]; then
+  install_report_box "Post-install security cleanup" "${cleanup_lines[@]}"
+fi
 if [[ "${#cli_lines[@]}" -gt 0 ]]; then
   install_report_box "Optional next steps - Vast CLI" "${cli_lines[@]}"
 fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 
-for cmd in storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary; do
+for cmd in vastai storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary vast_post_install_cleanup; do
   bash -n "/usr/local/bin/$cmd"
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/ram_burn /usr/local/bin/memtester
@@ -1316,7 +1482,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vast_install_summary storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
+commands=vastai vast_install_summary vast_post_install_cleanup storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vast_install_summary"

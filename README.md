@@ -335,6 +335,18 @@ sudo /opt/vast-host-installer/bin/vast-host-installer --first-run
 
 The login screen also reminds you of this command. After first-run creates the final operator user, the temporary `vastbootstrap` account is locked when the final user is different.
 
+After setup is finished and you have confirmed the final operator user can log in and use `sudo`, remove the temporary ISO bootstrap user:
+
+```bash
+sudo deluser --remove-home vastbootstrap
+```
+
+Verify only the intended admin user remains in the sudo group:
+
+```bash
+getent group sudo
+```
+
 ---
 
 ## First-run questions
