@@ -541,7 +541,7 @@ if [[ "$WITH_FLEET_HEALTH" -eq 1 ]]; then
   phase3_done_lines+=("Fleet Health Check prerequisites installed")
 fi
 if [[ "$WITH_GPU_FAN_CONTROL" -eq 1 ]]; then
-  phase3_done_lines+=("Aggressive Vast.ai GPU fan control installed and enabled")
+  phase3_done_lines+=("GPU fan control installed with switchable global/per-GPU modes")
 fi
 burn_cmds=()
 if [[ "$WITH_CPU_BURN" -eq 1 ]]; then
@@ -558,6 +558,7 @@ if (( ${#burn_cmds[@]} > 0 )); then
   phase3_done_lines+=("Stress-test commands installed: ${joined// /, }")
 fi
 phase3_done_lines+=("Host polish commands installed")
+phase3_done_lines+=("Setup summary command installed: vastsetup")
 
 host_polish_lines=(
   "storage_layout - Show disk layout and Docker storage"
@@ -569,6 +570,11 @@ host_polish_lines=(
   "sudo vast_port_check - Verify Vast host ports"
   "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
 )
+if command -v vast_gpu_fan_mode >/dev/null 2>&1; then
+  host_polish_lines+=("sudo vast_gpu_fan_mode status - Check GPU fan mode/status")
+  host_polish_lines+=("sudo vast_gpu_fan_mode per-gpu - Smart per-GPU fan mode")
+  host_polish_lines+=("sudo vast_gpu_fan_mode global - Global max-temp fan mode")
+fi
 
 post_cleanup_cmd="/usr/local/bin/vast_post_install_cleanup"
 sudo tee "$post_cleanup_cmd" >/dev/null <<'SCRIPT'
@@ -623,6 +629,9 @@ fi
 if getent passwd vastbootstrap >/dev/null 2>&1; then
   deluser --remove-home vastbootstrap || true
 fi
+if getent passwd ubuntu >/dev/null 2>&1; then
+  deluser --remove-home ubuntu || true
+fi
 
 rm -f /var/lib/vast-host-installer/resume.env /tmp/vast-install.sh
 rm -rf /tmp/vast-install.*
@@ -631,8 +640,8 @@ rm -f /var/log/installer/autoinstall-user-data /var/log/installer/user-data \
   /var/lib/cloud/instance/user-data.txt \
   /var/lib/cloud/instances/*/user-data.txt \
   /autoinstall.yaml
-rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log \
-  /var/log/installer/subiquity* /var/log/installer/curtin*
+rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log
+rm -rf /var/log/installer/subiquity* /var/log/installer/curtin*
 
 if [[ -f /etc/sudoers.d/rig-monitor-launcher ]]; then
   sed -i '/^vastbootstrap[[:space:]]/d' /etc/sudoers.d/rig-monitor-launcher || true
@@ -679,10 +688,10 @@ echo
 echo "Cleanup complete. Current sudo group:"
 getent group sudo || true
 
-if command -v vast_install_summary >/dev/null 2>&1; then
+if command -v vastsetup >/dev/null 2>&1; then
   echo
   echo "Reopening clean install summary..."
-  exec vast_install_summary
+  exec vastsetup
 fi
 SCRIPT
 sudo chmod 0755 "$post_cleanup_cmd"
@@ -690,7 +699,7 @@ sudo bash -n "$post_cleanup_cmd"
 
 bootstrap_cleanup_lines=(
   "Run only after your final sudo user works and Vast is verified"
-  "sudo vast_post_install_cleanup - Remove ISO/bootstrap leftovers"
+  "sudo vast_post_install_cleanup - Run cleanup and hide this box"
   "Optional: sudo vast_post_install_cleanup --remove-installer"
   "Verify sudo users after cleanup: getent group sudo"
 )
@@ -742,6 +751,10 @@ summary_tmp="$(mktemp)"
   for line in "${bootstrap_cleanup_lines[@]}"; do
     echo "✓ $line"
   done
+  echo
+  echo "Setup summary"
+  echo "✓ vastsetup - Show this screen again"
+  echo "✓ vast_install_summary - Same command, old name"
   if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
     echo
     echo "Optional next steps - Vast CLI"
@@ -763,7 +776,7 @@ set -euo pipefail
 summary_file="/var/lib/vast-host-installer/final-summary.txt"
 if [[ ! -r "$summary_file" ]]; then
   echo "No final Vast Host install summary found at $summary_file" >&2
-  echo "Finish Phase 3 first, then run vast_install_summary again." >&2
+  echo "Finish Phase 3 first, then run vastsetup again." >&2
   exit 1
 fi
 
@@ -831,7 +844,7 @@ install_report_box() {
   printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); cli_lines=(); section=""
+done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
 while IFS= read -r line; do
   case "$line" in
     "What was done - full install report") section="done"; continue ;;
@@ -839,6 +852,7 @@ while IFS= read -r line; do
     "Quick stress-test commands") section="quick"; continue ;;
     "Useful host polish commands") section="polish"; continue ;;
     "Post-install security cleanup") section="cleanup"; continue ;;
+    "Setup summary") section="setup"; continue ;;
     "Optional next steps - Vast CLI") section="cli"; continue ;;
     "VAST HOST - "*|"Generated: "*|"") continue ;;
   esac
@@ -852,6 +866,7 @@ while IFS= read -r line; do
     quick) quick_lines+=("$line") ;;
     polish) polish_lines+=("$line") ;;
     cleanup) cleanup_lines+=("$line") ;;
+    setup) setup_lines+=("$line") ;;
     cli) cli_lines+=("$line") ;;
   esac
 done < "$summary_file"
@@ -871,11 +886,15 @@ fi
 if [[ "${#cleanup_lines[@]}" -gt 0 ]]; then
   install_report_box "Post-install security cleanup" "${cleanup_lines[@]}"
 fi
+if [[ "${#setup_lines[@]}" -gt 0 ]]; then
+  install_report_box "Setup summary" "${setup_lines[@]}"
+fi
 if [[ "${#cli_lines[@]}" -gt 0 ]]; then
   install_report_box "Optional next steps - Vast CLI" "${cli_lines[@]}"
 fi
 EOF
 sudo chmod 0755 "$summary_cmd"
+sudo ln -sf vast_install_summary /usr/local/bin/vastsetup
 sudo bash -n "$summary_cmd"
 
 hero_banner
@@ -888,7 +907,7 @@ if [[ "${#stress_test_lines[@]}" -gt 0 ]]; then
 fi
 install_report_box "Useful host polish commands" "${host_polish_lines[@]}"
 install_report_box "Post-install security cleanup" "${bootstrap_cleanup_lines[@]}"
-install_report_box "Show this screen again" "vast_install_summary"
+install_report_box "Setup summary" "vastsetup - Show this screen again" "vast_install_summary - Same command, old name"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."
   command_list_box \

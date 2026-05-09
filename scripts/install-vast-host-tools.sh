@@ -569,7 +569,7 @@ bash -n /usr/local/bin/gpu_burn
 [[ -x /usr/local/bin/full_burn ]] && bash -n /usr/local/bin/full_burn || true
 rm -rf "$workdir"
 echo "gpu_burn installed. Test with: gpu_burn -tc -m 100% 60"
-echo "Run vast_install_summary again to refresh the report."
+echo "Run vastsetup again to refresh the report."
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_gpu_burn
 
@@ -835,58 +835,221 @@ User=root
 WantedBy=multi-user.target
 EOF
 
-step "Installing aggressive Vast.ai fan curve"
-cat >/usr/local/bin/gpu-fan.sh <<'EOF'
-#!/bin/bash
+step "Installing GPU fan mode switcher"
+cat >/usr/local/bin/vast_gpu_fan_mode <<'FANMODE_SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+  echo "Re-running with sudo..."
+  exec sudo "$0" "$@"
+fi
+
+mode="${1:-status}"
+no_restart=0
+for arg in "${@:2}"; do
+  case "$arg" in
+    --no-restart) no_restart=1 ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+install_global() {
+cat >/usr/local/bin/gpu-fan.sh <<'EOF_GLOBAL'
+#!/usr/bin/env bash
+set -euo pipefail
 export DISPLAY=:0
 export XAUTHORITY=/root/.Xauthority
 
 sleep 10
 
+echo "global" >/run/vast-gpu-fan-mode 2>/dev/null || true
+
 while true; do
     MAXTEMP=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | sort -nr | head -n1)
+    GPUS=$(nvidia-settings --ctrl-display=:0 -q gpus 2>/dev/null | grep -o "gpu:[0-9]*" | sort -u || true)
+    FANS=$(nvidia-settings --ctrl-display=:0 -q fans 2>/dev/null | grep -o "fan:[0-9]*" | sort -u || true)
 
-    GPUS=$(nvidia-settings --ctrl-display=:0 -q gpus 2>/dev/null | grep -o "gpu:[0-9]*" | sort -u)
-    FANS=$(nvidia-settings --ctrl-display=:0 -q fans 2>/dev/null | grep -o "fan:[0-9]*" | sort -u)
+    if [ -z "${MAXTEMP:-}" ]; then sleep 5; continue; fi
+    if [ "$MAXTEMP" -lt 50 ]; then MODE="auto"; unset SPEED
+    elif [ "$MAXTEMP" -lt 60 ]; then SPEED=50; MODE="manual"
+    elif [ "$MAXTEMP" -lt 70 ]; then SPEED=75; MODE="manual"
+    elif [ "$MAXTEMP" -lt 72 ]; then SPEED=90; MODE="manual"
+    else SPEED=100; MODE="manual"; fi
 
-    if [ "$MAXTEMP" -lt 50 ]; then
-        MODE="auto"
-        unset SPEED
-    elif [ "$MAXTEMP" -lt 60 ]; then
-        SPEED=50
-        MODE="manual"
-    elif [ "$MAXTEMP" -lt 70 ]; then
-        SPEED=75
-        MODE="manual"
-    elif [ "$MAXTEMP" -lt 72 ]; then
-        SPEED=90
-        MODE="manual"
-    else
-        SPEED=100
-        MODE="manual"
-    fi
-
-    echo "$(date) | Temp: $MAXTEMP°C -> Mode: $MODE ${SPEED:-} | GPUs: $GPUS | Fans: $FANS"
+    echo "$(date -Is) | global fan | max=${MAXTEMP}C -> ${MODE} ${SPEED:-} | GPUs: $GPUS | Fans: $FANS"
 
     for gpu in $GPUS; do
         if [ "$MODE" = "auto" ]; then
-            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=0" >/dev/null 2>&1
+            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=0" >/dev/null 2>&1 || true
         else
-            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=1" >/dev/null 2>&1
+            nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=1" >/dev/null 2>&1 || true
         fi
     done
-
     if [ "$MODE" = "manual" ]; then
         for fan in $FANS; do
-            nvidia-settings --ctrl-display=:0 -a "[$fan]/GPUTargetFanSpeed=$SPEED" >/dev/null 2>&1
+            nvidia-settings --ctrl-display=:0 -a "[$fan]/GPUTargetFanSpeed=$SPEED" >/dev/null 2>&1 || true
         done
     fi
-
     sleep 5
 done
-EOF
+EOF_GLOBAL
 chmod 0755 /usr/local/bin/gpu-fan.sh
+}
+
+install_per_gpu() {
+cat >/usr/local/bin/gpu-fan.sh <<'EOF_PERGPU'
+#!/usr/bin/env bash
+set -euo pipefail
+export DISPLAY=:0
+export XAUTHORITY=/root/.Xauthority
+
+state_dir="/var/lib/vast-host-installer"
+map_file="$state_dir/gpu-fan-map.env"
+mkdir -p "$state_dir"
+echo "per-gpu" >/run/vast-gpu-fan-mode 2>/dev/null || true
+
+speed_for_temp() {
+  local temp="$1"
+  if (( temp < 50 )); then echo auto
+  elif (( temp < 60 )); then echo 50
+  elif (( temp < 70 )); then echo 75
+  elif (( temp < 72 )); then echo 90
+  else echo 100
+  fi
+}
+
+global_fallback_loop() {
+  echo "$(date -Is) | per-gpu fan | WARNING: mapping unavailable; falling back to global curve"
+  while true; do
+    maxtemp=$(nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader,nounits | sort -nr | head -n1 || true)
+    gpus=$(nvidia-settings --ctrl-display=:0 -q gpus 2>/dev/null | grep -o 'gpu:[0-9]*' | sort -u || true)
+    fans=$(nvidia-settings --ctrl-display=:0 -q fans 2>/dev/null | grep -o 'fan:[0-9]*' | sort -u || true)
+    [[ -n "${maxtemp:-}" ]] || { sleep 5; continue; }
+    target=$(speed_for_temp "$maxtemp")
+    for gpu in $gpus; do
+      if [[ "$target" == auto ]]; then nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=0" >/dev/null 2>&1 || true
+      else nvidia-settings --ctrl-display=:0 -a "[$gpu]/GPUFanControlState=1" >/dev/null 2>&1 || true; fi
+    done
+    if [[ "$target" != auto ]]; then for fan in $fans; do nvidia-settings --ctrl-display=:0 -a "[$fan]/GPUTargetFanSpeed=$target" >/dev/null 2>&1 || true; done; fi
+    echo "$(date -Is) | fallback global fan | max=${maxtemp}C -> ${target}"
+    sleep 5
+  done
+}
+
+read_smi_fans() {
+  nvidia-smi --query-gpu=index,fan.speed --format=csv,noheader,nounits | awk -F, '{gsub(/ /,"",$1); gsub(/ /,"",$2); print $1":"$2}'
+}
+
+discover_map() {
+  mapfile -t gpus < <(nvidia-smi --query-gpu=index --format=csv,noheader,nounits | tr -d ' ')
+  mapfile -t fans < <(nvidia-settings --ctrl-display=:0 -q fans 2>/dev/null | grep -o 'fan:[0-9]*' | sort -t: -k2,2n -u | cut -d: -f2)
+  (( ${#gpus[@]} > 0 && ${#fans[@]} > 0 )) || return 1
+  per=$(( ${#fans[@]} / ${#gpus[@]} ))
+  (( per >= 1 )) || per=1
+  (( ${#fans[@]} % ${#gpus[@]} == 0 )) || return 1
+
+  for gpu in "${gpus[@]}"; do nvidia-settings --ctrl-display=:0 -a "[gpu:$gpu]/GPUFanControlState=1" >/dev/null 2>&1 || true; done
+  set_all() { local speed="$1"; for fan in "${fans[@]}"; do nvidia-settings --ctrl-display=:0 -a "[fan:$fan]/GPUTargetFanSpeed=$speed" >/dev/null 2>&1 || true; done; }
+
+  tmp="$(mktemp)"
+  {
+    echo '# Auto-discovered by gpu-fan.sh. Remove this file to re-detect.'
+    echo "GPU_COUNT=${#gpus[@]}"
+    echo "FAN_COUNT=${#fans[@]}"
+  } >"$tmp"
+
+  declare -A used_gpu=()
+  for ((i=0; i<${#fans[@]}; i+=per)); do
+    group=("${fans[@]:i:per}")
+    set_all 35; sleep 4
+    before="$(read_smi_fans | tr '\n' ' ')"
+    for fan in "${group[@]}"; do nvidia-settings --ctrl-display=:0 -a "[fan:$fan]/GPUTargetFanSpeed=80" >/dev/null 2>&1 || true; done
+    sleep 8
+    after="$(read_smi_fans | tr '\n' ' ')"
+    best_gpu=""; best_delta=-999
+    for gpu in "${gpus[@]}"; do
+      [[ -n "${used_gpu[$gpu]:-}" ]] && continue
+      b=$(echo "$before" | tr ' ' '\n' | awk -F: -v g="$gpu" '$1==g{print $2}')
+      a=$(echo "$after" | tr ' ' '\n' | awk -F: -v g="$gpu" '$1==g{print $2}')
+      b=${b:-0}; a=${a:-0}; d=$((a-b))
+      if (( d > best_delta )); then best_delta=$d; best_gpu=$gpu; fi
+    done
+    [[ -n "$best_gpu" && "$best_delta" -ge 15 ]] || { rm -f "$tmp"; return 1; }
+    used_gpu[$best_gpu]=1
+    echo "GPU_FANS_${best_gpu}=\"${group[*]}\"" >>"$tmp"
+    echo "$(date -Is) | per-gpu fan discovery | fans:${group[*]} -> gpu:${best_gpu} delta:${best_delta}"
+  done
+  mv "$tmp" "$map_file"
+}
+
+sleep 10
+if [[ ! -r "$map_file" ]]; then
+  discover_map || global_fallback_loop
+fi
+# shellcheck disable=SC1090
+source "$map_file" || global_fallback_loop
+
+while true; do
+  mapfile -t temps < <(nvidia-smi --query-gpu=index,temperature.gpu --format=csv,noheader,nounits | tr -d ' ')
+  log_parts=()
+  for row in "${temps[@]}"; do
+    gpu="${row%%,*}"; temp="${row##*,}"
+    var="GPU_FANS_${gpu}"
+    fans="${!var:-}"
+    [[ -n "$fans" ]] || continue
+    target="$(speed_for_temp "$temp")"
+    if [[ "$target" == auto ]]; then
+      nvidia-settings --ctrl-display=:0 -a "[gpu:$gpu]/GPUFanControlState=0" >/dev/null 2>&1 || true
+      log_parts+=("gpu${gpu}:${temp}C->auto")
+    else
+      nvidia-settings --ctrl-display=:0 -a "[gpu:$gpu]/GPUFanControlState=1" >/dev/null 2>&1 || true
+      for fan in $fans; do nvidia-settings --ctrl-display=:0 -a "[fan:$fan]/GPUTargetFanSpeed=$target" >/dev/null 2>&1 || true; done
+      log_parts+=("gpu${gpu}:${temp}C->${target}% fans:${fans// /,}")
+    fi
+  done
+  echo "$(date -Is) | per-gpu fan | ${log_parts[*]}"
+  sleep 5
+done
+EOF_PERGPU
+chmod 0755 /usr/local/bin/gpu-fan.sh
+}
+
+case "$mode" in
+  global)
+    install_global
+    echo "global" >/etc/vast-gpu-fan-mode
+    rm -f /var/lib/vast-host-installer/gpu-fan-map.env
+    ;;
+  per-gpu|pergpu|smart)
+    install_per_gpu
+    echo "per-gpu" >/etc/vast-gpu-fan-mode
+    rm -f /var/lib/vast-host-installer/gpu-fan-map.env
+    ;;
+  status)
+    echo "configured: $(cat /etc/vast-gpu-fan-mode 2>/dev/null || echo unknown)"
+    echo "running: $(cat /run/vast-gpu-fan-mode 2>/dev/null || echo unknown)"
+    systemctl is-active gpu-fan.service 2>/dev/null || true
+    nvidia-smi --query-gpu=index,temperature.gpu,fan.speed,utilization.gpu --format=csv,noheader,nounits 2>/dev/null || true
+    exit 0
+    ;;
+  *)
+    echo "Usage: sudo vast_gpu_fan_mode status|global|per-gpu [--no-restart]" >&2
+    exit 2
+    ;;
+esac
+
 bash -n /usr/local/bin/gpu-fan.sh
+if [[ "$no_restart" -eq 0 ]] && systemctl list-unit-files gpu-fan.service --no-legend >/dev/null 2>&1; then
+  systemctl restart gpu-fan.service
+fi
+echo "GPU fan mode set to: $(cat /etc/vast-gpu-fan-mode)"
+
+FANMODE_SCRIPT
+chmod 0755 /usr/local/bin/vast_gpu_fan_mode
+
+step "Installing default global aggressive fan curve"
+/usr/local/bin/vast_gpu_fan_mode global --no-restart
 
 step "Installing GPU fan control service"
 cat >/etc/systemd/system/gpu-fan.service <<'EOF'
@@ -1167,9 +1330,11 @@ command -v gpu_burn >/dev/null 2>&1 || polish+=("sudo vast_install_gpu_burn - In
 fan_control_installed=0
 if systemctl list-unit-files gpu-fan.service --no-legend 2>/dev/null | grep -q '^gpu-fan\.service'; then
   fan_control_installed=1
-  polish+=("systemctl status gpu-fan.service - Check aggressive GPU fan control")
+  polish+=("sudo vast_gpu_fan_mode status - Check GPU fan mode/status")
+  polish+=("sudo vast_gpu_fan_mode per-gpu - Smart per-GPU fan mode")
+  polish+=("sudo vast_gpu_fan_mode global - Global max-temp fan mode")
 else
-  polish+=("sudo vast_install_gpu_fan_control - Install aggressive GPU fan control")
+  polish+=("sudo vast_install_gpu_fan_control - Install GPU fan control")
 fi
 command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
 
@@ -1225,6 +1390,9 @@ fi
 if getent passwd vastbootstrap >/dev/null 2>&1; then
   deluser --remove-home vastbootstrap || true
 fi
+if getent passwd ubuntu >/dev/null 2>&1; then
+  deluser --remove-home ubuntu || true
+fi
 
 rm -f /var/lib/vast-host-installer/resume.env /tmp/vast-install.sh
 rm -rf /tmp/vast-install.*
@@ -1233,8 +1401,8 @@ rm -f /var/log/installer/autoinstall-user-data /var/log/installer/user-data \
   /var/lib/cloud/instance/user-data.txt \
   /var/lib/cloud/instances/*/user-data.txt \
   /autoinstall.yaml
-rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log \
-  /var/log/installer/subiquity* /var/log/installer/curtin*
+rm -f /var/log/cloud-init.log /var/log/cloud-init-output.log
+rm -rf /var/log/installer/subiquity* /var/log/installer/curtin*
 
 if [[ -f /etc/sudoers.d/rig-monitor-launcher ]]; then
   sed -i '/^vastbootstrap[[:space:]]/d' /etc/sudoers.d/rig-monitor-launcher || true
@@ -1281,10 +1449,10 @@ echo
 echo "Cleanup complete. Current sudo group:"
 getent group sudo || true
 
-if command -v vast_install_summary >/dev/null 2>&1; then
+if command -v vastsetup >/dev/null 2>&1; then
   echo
   echo "Reopening clean install summary..."
-  exec vast_install_summary
+  exec vastsetup
 fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_post_install_cleanup
@@ -1292,7 +1460,7 @@ bash -n /usr/local/bin/vast_post_install_cleanup
 
 bootstrap_cleanup=(
   "Run only after your final sudo user works and Vast is verified"
-  "sudo vast_post_install_cleanup - Remove ISO/bootstrap leftovers"
+  "sudo vast_post_install_cleanup - Run cleanup and hide this box"
   "Optional: sudo vast_post_install_cleanup --remove-installer"
   "Verify sudo users after cleanup: getent group sudo"
 )
@@ -1335,6 +1503,10 @@ bootstrap_cleanup=(
   echo "Post-install security cleanup"
   for line in "${bootstrap_cleanup[@]}"; do echo "✓ $line"; done
   echo
+  echo "Setup summary"
+  echo "✓ vastsetup - Show this screen again"
+  echo "✓ vast_install_summary - Same command, old name"
+  echo
   echo "Optional next steps - Vast CLI"
   echo "vastai --help"
   echo "vastai set api-key YOUR_API_KEY"
@@ -1352,7 +1524,7 @@ set -euo pipefail
 summary_file="/var/lib/vast-host-installer/final-summary.txt"
 if [[ ! -r "$summary_file" ]]; then
   echo "No final Vast Host install summary found at $summary_file" >&2
-  echo "Finish Phase 3 first, then run vast_install_summary again." >&2
+  echo "Finish Phase 3 first, then run vastsetup again." >&2
   exit 1
 fi
 
@@ -1420,7 +1592,7 @@ install_report_box() {
   printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); cli_lines=(); section=""
+done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
 while IFS= read -r line; do
   case "$line" in
     "What was done - full install report") section="done"; continue ;;
@@ -1428,6 +1600,7 @@ while IFS= read -r line; do
     "Quick stress-test commands") section="quick"; continue ;;
     "Useful host polish commands") section="polish"; continue ;;
     "Post-install security cleanup") section="cleanup"; continue ;;
+    "Setup summary") section="setup"; continue ;;
     "Optional next steps - Vast CLI") section="cli"; continue ;;
     "VAST HOST - "*|"Generated: "*|"") continue ;;
   esac
@@ -1441,6 +1614,7 @@ while IFS= read -r line; do
     quick) quick_lines+=("$line") ;;
     polish) polish_lines+=("$line") ;;
     cleanup) cleanup_lines+=("$line") ;;
+    setup) setup_lines+=("$line") ;;
     cli) cli_lines+=("$line") ;;
   esac
 done < "$summary_file"
@@ -1460,13 +1634,18 @@ fi
 if [[ "${#cleanup_lines[@]}" -gt 0 ]]; then
   install_report_box "Post-install security cleanup" "${cleanup_lines[@]}"
 fi
+if [[ "${#setup_lines[@]}" -gt 0 ]]; then
+  install_report_box "Setup summary" "${setup_lines[@]}"
+fi
 if [[ "${#cli_lines[@]}" -gt 0 ]]; then
   install_report_box "Optional next steps - Vast CLI" "${cli_lines[@]}"
 fi
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
+ln -sf vast_install_summary /usr/local/bin/vastsetup
 
-for cmd in vastai storage_layout disk_health vast_ready_check vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary vast_post_install_cleanup; do
+for cmd in vastai storage_layout disk_health vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary vastsetup vast_post_install_cleanup; do
+  [[ -e "/usr/local/bin/$cmd" ]] || continue
   bash -n "/usr/local/bin/$cmd"
 done
 bash -n /usr/local/bin/cpu_burn /usr/local/bin/ram_burn /usr/local/bin/memtester
@@ -1482,7 +1661,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vastai vast_install_summary vast_post_install_cleanup storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
+commands=vastai vastsetup vast_install_summary vast_post_install_cleanup storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
-echo "Installed Vast host tools. Run: vast_install_summary"
+echo "Installed Vast host tools. Run: vastsetup"
