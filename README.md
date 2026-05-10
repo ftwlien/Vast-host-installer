@@ -666,25 +666,43 @@ When Phase 3 finishes, the rig should be ready for Vast.ai listing/testing.
 ---
 
 
-## Existing Ubuntu rig installer
+## Existing Ubuntu/Vast host maintenance installer
 
-For rigs that are **already installed and running Ubuntu**, you do not need the ISO.
+You do **not** need to reinstall with the ISO to use the maintenance tools.
 
-Use the public helper installer to add the same Phase 3-style summary, validation tools, port helpers, burn tools, and host-polish commands:
+The public helper installer can be run on any already-running Ubuntu Vast.ai host, including:
+
+- rigs installed with an older version of this ISO
+- rigs installed manually from normal Ubuntu
+- existing Vast hosts that only need updated helper commands
+- fleet machines that need the same maintenance tooling everywhere
+
+Run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh | sudo bash
 ```
 
-Then run:
+Then reopen the host summary any time with:
+
+```bash
+vastsetup
+```
+
+The old command still works too:
 
 ```bash
 vast_install_summary
 ```
 
-This adds:
+This helper installer does **not** reinstall Ubuntu and does **not** run the full ISO setup flow. It only installs/refreshes helper commands for maintenance, validation, burn testing, Vast CLI use, port checks, storage checks, and host polish.
 
-- `vast_install_summary`
+It installs or refreshes tools such as:
+
+- `vastsetup` — easy command to reopen the summary screen
+- `vast_install_summary` — older summary command, kept for compatibility
+- `vastai` — global wrapper for the Vast CLI
+- `sudo vast_post_install_cleanup` — remove ISO/bootstrap leftovers when applicable
 - `storage_layout`
 - `sudo vast_ready_check`
 - `sudo disk_health`
@@ -697,7 +715,9 @@ This adds:
 - `gpu_burn`
 - `full_burn`
 - `sudo rig-burn-cleanup`
+- `sudo vast_install_gpu_burn`
 - `sudo vast_install_gpu_fan_control`
+- `sudo vast_gpu_fan_mode status|per-gpu|global`
 - `rig-monitor` when available/installed
 
 If gpu-burn ever needs repair:
@@ -706,17 +726,29 @@ If gpu-burn ever needs repair:
 sudo vast_install_gpu_burn
 ```
 
-To add aggressive Vast.ai GPU fan control on an already-running Ubuntu rig:
+To add or repair Vast.ai GPU fan control on an already-running Ubuntu rig:
 
 ```bash
 sudo vast_install_gpu_fan_control
 ```
 
-This installs the same headless NVIDIA Xorg + `gpu-fan.service` fan curve used by the ISO Phase 3 flow.
+Then choose/check the fan mode:
 
-This is meant for existing Ubuntu hosts, not fresh ISO installs. The summary uses the same logo/boxes as the ISO Phase 3 complete screen, but generates the report from the current machine state.
+```bash
+sudo vast_gpu_fan_mode status
+sudo vast_gpu_fan_mode per-gpu
+sudo vast_gpu_fan_mode global
+```
 
-Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo.
+This installs the same headless NVIDIA Xorg + `gpu-fan.service` fan-control stack used by the ISO Phase 3 flow.
+
+Security note: when installing from the internet, inspect the script first if you want to verify it before running it with sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ftwlien/Vast-host-installer/main/scripts/install-vast-host-tools.sh -o install-vast-host-tools.sh
+less install-vast-host-tools.sh
+sudo bash install-vast-host-tools.sh
+```
 
 ### Optional storage helper for clean-Ubuntu installs
 
