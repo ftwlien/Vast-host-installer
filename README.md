@@ -34,7 +34,7 @@ Current recommended ISO:
 
 After Phase 3 finishes, the installer prints a clean summary with the install report, port range, stress-test commands, host-polish helpers, cleanup command, and the `vastsetup` command you can run later to show the same screen again.
 
-![Vast Host Installer final setup summary](docs/images/vastsetup-summary.jpg)
+![Vast Host Installer final setup summary](docs/images/vastsetup-summary-sanitized.jpg)
 
 ---
 
