@@ -758,6 +758,8 @@ Remove stored Vast CLI/API key config for the current user and root:
 rm -rf ~/.config/vastai ~/.vastai ~/.vast && sudo rm -rf /root/.config/vastai /root/.vastai /root/.vast
 ```
 
+A dedicated easy cleanup command will be added in the next release.
+
 When installing from the internet, inspect the script first if you want to verify it before running it with sudo:
 
 ```bash
