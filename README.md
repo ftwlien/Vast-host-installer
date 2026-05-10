@@ -750,7 +750,7 @@ sudo vast_gpu_fan_mode global
 
 This installs the same headless NVIDIA Xorg + `gpu-fan.service` fan-control stack used by the ISO Phase 3 flow.
 
-Security note: the Vast CLI itself is convenience tooling. The sensitive part is any stored Vast API key. If you do not want a key left on the host, do not set one there, or remove it after testing.
+Security note: the Vast CLI itself is convenience tooling. The sensitive part is any stored Vast API key. If you create/use a temporary key for host testing, remove it from the machine after testing and delete/revoke it from the Vast.ai website/API keys page when you are done.
 
 Remove stored Vast CLI/API key config for the current user and root:
 
