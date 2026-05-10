@@ -950,10 +950,14 @@ Still planned:
 
 ## License
 
-This project is **not MIT licensed**.
+This project is open source under the [MIT License](LICENSE).
 
-It is source-available for personal, educational, hobby, research, and other non-commercial use under the **FTWLIEN Non-Commercial License v1.0** in [`LICENSE`](LICENSE).
+You can use it, copy it, modify it, fork it, publish it, distribute it, sublicense it, and use it commercially, as long as the MIT copyright and license notice are preserved.
 
-Commercial use is prohibited without prior written permission from the copyright holder. That includes hosting, resale, paid services, integration into commercial products or workflows, internal business use, or use by companies to support commercial GPU, AI, cloud, hosting, compute, or Vast.ai infrastructure.
+No separate commercial license is required for the MIT-licensed version.
 
-Businesses and commercial users need a separate written commercial license. See [`COMMERCIAL_LICENSE.md`](COMMERCIAL_LICENSE.md).
+## Third-party software
+
+This project is an installer/configuration helper. It may download, install, or configure third-party software such as Ubuntu packages, Docker, NVIDIA components, Vast.ai tools, gpu-burn, and other utilities.
+
+Those third-party components are not owned by this project and remain subject to their own licenses and terms. This project is not affiliated with or endorsed by Vast.ai, NVIDIA, Canonical/Ubuntu, Docker, or other third-party providers unless explicitly stated.
