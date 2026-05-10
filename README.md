@@ -22,11 +22,19 @@ Watch the full setup walkthrough here:
 
 Current recommended ISO:
 
-- **`vast-host-installer-jammy-v1.iso`**
+- **`vast-host-installer-jammy-v2.iso`**
 - Ubuntu Server 22.04 Jammy-based custom Vast.ai host ISO
 - Boots/stages the installer cleanly from USB with a local payload at `/opt/vast-host-installer`
-- Includes the polished Phase 3 summary, burn-test suite, port helpers, readiness checks, and existing-rig tools
+- Includes the polished Phase 3 summary, burn-test suite, port helpers, readiness checks, existing-rig tools, `vastsetup`, post-install cleanup, and switchable GPU fan modes
 - SHA256: see the `.sha256` file attached to the GitHub release
+
+---
+
+## What the final setup summary looks like
+
+After Phase 3 finishes, the installer prints a clean summary with the install report, port range, stress-test commands, host-polish helpers, cleanup command, and the `vastsetup` command you can run later to show the same screen again.
+
+![Vast Host Installer final setup summary](docs/images/vastsetup-summary.jpg)
 
 ---
 
