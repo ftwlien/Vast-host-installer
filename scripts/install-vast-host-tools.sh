@@ -627,6 +627,189 @@ EOF
   chmod 0755 /usr/local/bin/full_burn
 fi
 
+cat >/usr/local/bin/vast_machine_id <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+machine_id_file="/var/lib/vastai_kaalia/machine_id"
+usage() { echo "Usage: sudo vast_machine_id show | sudo vast_machine_id restore <machine_id>"; }
+cmd="${1:-show}"
+case "$cmd" in
+  show)
+    if [[ -f "$machine_id_file" ]]; then
+      echo "Vast machine ID: $(cat "$machine_id_file")"
+      echo "Save this value before reinstalling if you want to preserve this host identity."
+    else
+      echo "No Vast machine ID found at $machine_id_file"; exit 1
+    fi ;;
+  restore)
+    id="${2:-}"; [[ -n "$id" ]] || { usage >&2; exit 2; }
+    [[ "$id" =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "Machine ID contains unexpected characters." >&2; exit 2; }
+    [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo "$0" "$@"
+    install -d -m 0755 /var/lib/vastai_kaalia
+    printf '%s' "$id" > "$machine_id_file"
+    chmod 0644 "$machine_id_file"
+    echo "Restored Vast machine ID: $(cat "$machine_id_file")" ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac
+SCRIPT
+chmod 0755 /usr/local/bin/vast_machine_id
+
+cat >/usr/local/bin/vast_power_limit <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+service="/etc/systemd/system/vast-nvidia-power-limit.service"
+envfile="/etc/default/vast-nvidia-power-limit"
+usage() { cat <<'EOF'
+Usage:
+  sudo vast_power_limit <watts>
+  sudo vast_power_limit status
+  sudo vast_power_limit disable
+
+Persistent power limit is optional and never enabled by default.
+This keeps NVIDIA persistence mode ON (-pm 1).
+EOF
+}
+require_root() { [[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo "$0" "$@"; }
+cmd="${1:-status}"
+case "$cmd" in
+  status|-s|--status)
+    echo "== NVIDIA persistence mode =="
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      pm_values="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+      if echo "$pm_values" | grep -qi 'Disabled'; then
+        echo "status: not fully enabled ($pm_values)"
+      elif [[ -n "$pm_values" ]]; then
+        echo "status: enabled/running ($pm_values)"
+      else
+        echo "status: unknown"
+      fi
+    else echo "status: unknown (nvidia-smi not found)"; fi
+    echo; echo "== NVIDIA power limits =="
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      nvidia-smi --query-gpu=index,name,persistence_mode,power.draw,power.limit,power.default_limit,power.min_limit,power.max_limit --format=csv 2>/dev/null || nvidia-smi -q -d POWER || true
+    else echo "nvidia-smi not found"; fi
+    echo; echo "== Persistent power-limit service =="
+    enabled="$(systemctl is-enabled vast-nvidia-power-limit.service 2>/dev/null || true)"
+    active="$(systemctl is-active vast-nvidia-power-limit.service 2>/dev/null || true)"
+    [[ -n "$enabled" ]] || enabled="not configured"
+    [[ -n "$active" ]] || active="not running"
+    echo "enabled: $enabled"
+    echo "active: $active"
+    [[ -f "$envfile" ]] && cat "$envfile" || true ;;
+  disable|off|remove)
+    require_root "$@"
+    systemctl disable --now vast-nvidia-power-limit.service >/dev/null 2>&1 || true
+    rm -f "$service" "$envfile"
+    systemctl daemon-reload || true
+    echo "Persistent NVIDIA power limit disabled/removed." ;;
+  -h|--help|help) usage ;;
+  *)
+    watts="$cmd"; case "$watts" in ''|*[!0-9]*) usage >&2; exit 2 ;; esac
+    require_root "$@"
+    command -v nvidia-smi >/dev/null 2>&1 || { echo "nvidia-smi not found" >&2; exit 1; }
+    install -d -m 0755 /etc/default
+    printf 'VAST_NVIDIA_POWER_LIMIT_WATTS=%s\n' "$watts" > "$envfile"
+    cat > "$service" <<'EOF_SERVICE'
+[Unit]
+Description=Set persistent NVIDIA GPU power limit for Vast host
+After=nvidia-persistenced.service multi-user.target
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/vast-nvidia-power-limit
+ExecStart=/usr/bin/nvidia-smi -pm 1
+ExecStart=/usr/bin/nvidia-smi -pl ${VAST_NVIDIA_POWER_LIMIT_WATTS}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+    systemctl daemon-reload
+    systemctl enable vast-nvidia-power-limit.service >/dev/null
+    systemctl restart vast-nvidia-power-limit.service
+    echo "Persistent NVIDIA power limit set to ${watts}W for all GPUs."
+    echo "Persistence mode is kept ON (-pm 1)." ;;
+esac
+SCRIPT
+chmod 0755 /usr/local/bin/vast_power_limit
+
+cat >/usr/local/bin/vast_api_key_cleanup <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+assume_yes=0
+for arg in "$@"; do case "$arg" in -y|--yes) assume_yes=1 ;; -h|--help) echo "Usage: sudo vast_api_key_cleanup [--yes]"; exit 0 ;; *) echo "Unknown option: $arg" >&2; exit 2 ;; esac; done
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || exec sudo "$0" "$@"
+echo "This removes stored Vast CLI/API key config for the invoking user and root."
+if [[ "$assume_yes" -ne 1 ]]; then read -r -p "Type CLEAN VAST API KEY to continue: " answer; [[ "$answer" == "CLEAN VAST API KEY" ]] || { echo "Cancelled."; exit 0; }; fi
+target_user="${SUDO_USER:-}"
+if [[ -n "$target_user" && "$target_user" != "root" ]] && home="$(getent passwd "$target_user" | cut -d: -f6)" && [[ -n "$home" ]]; then
+  rm -rf "$home/.config/vastai" "$home/.vastai" "$home/.vast"
+  echo "Cleaned Vast CLI config for $target_user"
+fi
+rm -rf /root/.config/vastai /root/.vastai /root/.vast
+echo "Cleaned Vast CLI config for root"
+echo "Done. Also revoke/delete temporary API keys in the Vast.ai web UI if needed."
+SCRIPT
+chmod 0755 /usr/local/bin/vast_api_key_cleanup
+
+
+cat >/usr/local/bin/vast_backup_identity <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+out="${1:-}"
+mid="$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || true)"
+ports="$(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || true)"
+host="$(hostname 2>/dev/null || true)"
+if [[ -n "$out" ]]; then
+  {
+    echo "# Vast identity backup - save before reinstall/wipe"
+    echo "created_at=$(date -Is)"
+    echo "hostname=$host"
+    echo "machine_id=${mid:-MISSING}"
+    echo "host_port_range=${ports:-MISSING}"
+  } | tee "$out"
+  echo "Saved identity backup to: $out"
+else
+  echo "# Vast identity backup - save before reinstall/wipe"
+  echo "created_at=$(date -Is)"
+  echo "hostname=$host"
+  echo "machine_id=${mid:-MISSING}"
+  echo "host_port_range=${ports:-MISSING}"
+fi
+SCRIPT
+chmod 0755 /usr/local/bin/vast_backup_identity
+
+cat >/usr/local/bin/vast_doctor <<'SCRIPT'
+#!/usr/bin/env bash
+set -uo pipefail
+pass=0; warn=0; fail=0
+ok(){ printf '✓ %s\n' "$*"; pass=$((pass+1)); }
+soft(){ printf '! %s\n' "$*"; warn=$((warn+1)); }
+bad(){ printf '✗ %s\n' "$*"; fail=$((fail+1)); }
+has(){ command -v "$1" >/dev/null 2>&1; }
+svc(){ if systemctl list-unit-files "$1.service" --no-legend 2>/dev/null | grep -q "^$1\\.service"; then systemctl is-active --quiet "$1" && ok "$1 service active" || bad "$1 service not active"; else soft "$1 service not installed"; fi; }
+echo "== Vast doctor =="; echo "Host: $(hostname)"; echo "Time: $(date -Is)"; echo
+has nvidia-smi && nvidia-smi >/dev/null 2>&1 && ok "nvidia-smi works" || bad "nvidia-smi failed/missing"
+if has nvidia-smi; then
+  pm="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  echo "$pm" | grep -qi Disabled && soft "NVIDIA persistence mode not fully enabled ($pm)" || ok "NVIDIA persistence mode enabled/running (${pm:-unknown})"
+  nvidia-smi --query-gpu=index,name,temperature.gpu,power.draw,power.limit,power.default_limit,power.max_limit --format=csv 2>/dev/null || true
+fi
+svc docker; svc containerd; svc vastai; svc vast_metrics; svc nvidia-persistenced
+if [[ -s /var/lib/vastai_kaalia/machine_id ]]; then ok "Vast machine ID present: $(cat /var/lib/vastai_kaalia/machine_id)"; else soft "Vast machine ID missing (new identity likely)"; fi
+if [[ -s /var/lib/vastai_kaalia/host_port_range ]]; then ok "Vast host port range: $(cat /var/lib/vastai_kaalia/host_port_range)"; else soft "Vast host port range missing"; fi
+if systemctl is-enabled vast-nvidia-power-limit.service >/dev/null 2>&1; then ok "Persistent power-limit service enabled"; else soft "Persistent power-limit service not configured (optional)"; fi
+if findmnt /var/lib/docker >/dev/null 2>&1; then fs="$(findmnt -no FSTYPE /var/lib/docker)"; opts="$(findmnt -no OPTIONS /var/lib/docker)"; [[ "$fs" == xfs && "$opts" == *prjquota* ]] && ok "Docker storage XFS/prjquota" || soft "Docker storage not XFS/prjquota ($fs $opts)"; else soft "/var/lib/docker is not a separate mount"; fi
+df -hT / /var/lib/docker 2>/dev/null || df -hT /
+if has docker; then docker info >/dev/null 2>&1 && ok "docker info works" || bad "docker info failed"; docker system df 2>/dev/null || true; fi
+if has curl && curl -I -fsS --max-time 8 https://console.vast.ai >/dev/null 2>&1; then ok "console.vast.ai reachable"; else bad "console.vast.ai not reachable"; fi
+echo; echo "Summary: pass=$pass warn=$warn fail=$fail"
+(( fail == 0 )) || exit 1
+SCRIPT
+chmod 0755 /usr/local/bin/vast_doctor
+
 cat >/usr/local/bin/vast_port_range <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1336,6 +1519,14 @@ if systemctl list-unit-files gpu-fan.service --no-legend 2>/dev/null | grep -q '
 else
   polish+=("sudo vast_install_gpu_fan_control - Install GPU fan control")
 fi
+polish+=("sudo vast_machine_id show - Show/save Vast machine ID before reinstall")
+polish+=("sudo vast_machine_id restore <id> - Restore ID before Vast install/register")
+polish+=("sudo vast_backup_identity - Print machine ID + port range backup")
+polish+=("sudo vast_doctor - One-shot health check for Vast host")
+polish+=("sudo vast_power_limit <watts> - Optional persistent GPU power limit")
+polish+=("sudo vast_power_limit status - Show current/default/max power limits")
+polish+=("sudo vast_power_limit disable - Remove persistent GPU power limit")
+polish+=("sudo vast_api_key_cleanup - Remove stored Vast CLI/API key config")
 command -v rig-monitor >/dev/null 2>&1 && polish+=("rig-monitor - Open rig monitor")
 
 cat >/usr/local/bin/vast_post_install_cleanup <<'SCRIPT'
@@ -1422,28 +1613,8 @@ if [[ "$remove_installer" -eq 1 ]]; then
   rm -rf /opt/vast-host-installer /usr/local/bin/vast-host-installer-source
 fi
 
-summary_file="/var/lib/vast-host-installer/final-summary.txt"
-if [[ -f "$summary_file" ]]; then
-  python3 - "$summary_file" <<'PY_SUMMARY_CLEANUP'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-lines = path.read_text().splitlines()
-out = []
-i = 0
-while i < len(lines):
-    if lines[i] == "Post-install security cleanup":
-        i += 1
-        while i < len(lines) and lines[i].startswith("✓ "):
-            i += 1
-        if i < len(lines) and lines[i] == "":
-            i += 1
-        continue
-    out.append(lines[i])
-    i += 1
-path.write_text("\n".join(out).rstrip() + "\n")
-PY_SUMMARY_CLEANUP
-fi
+# Keep the Post-install security cleanup section in vastsetup.
+# It includes long-term helpers such as vast_api_key_cleanup that may be useful later.
 
 echo
 echo "Cleanup complete. Current sudo group:"
@@ -1458,9 +1629,46 @@ SCRIPT
 chmod 0755 /usr/local/bin/vast_post_install_cleanup
 bash -n /usr/local/bin/vast_post_install_cleanup
 
+machine_id_masked="missing/new identity"
+if machine_id_raw="$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null)" && [[ -n "$machine_id_raw" ]]; then
+  if [[ ${#machine_id_raw} -gt 14 ]]; then
+    machine_id_masked="${machine_id_raw:0:6}...${machine_id_raw: -5}"
+  else
+    machine_id_masked="$machine_id_raw"
+  fi
+fi
+machine_identity=(
+  "Machine ID: $machine_id_masked"
+  "Show/save before reinstall: sudo vast_machine_id show"
+  "Restore before Vast install/register: sudo vast_machine_id restore <id>"
+  "Backup identity + ports: sudo vast_backup_identity"
+)
+
+pm_values="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+if echo "$pm_values" | grep -qi 'Disabled'; then
+  pm_status="not fully enabled ($pm_values)"
+elif [[ -n "$pm_values" ]]; then
+  pm_status="enabled/running ($pm_values)"
+else
+  pm_status="unknown"
+fi
+power_limit=(
+  "NVIDIA persistence mode: $pm_status"
+  "Persistent power-limit service: $(systemctl is-enabled vast-nvidia-power-limit.service 2>/dev/null || echo disabled/not configured)"
+  "Show current/default/max: sudo vast_power_limit status"
+  "Set only by operator choice: sudo vast_power_limit <watts>"
+  "Disable: sudo vast_power_limit disable"
+)
+if [[ -f /etc/default/vast-nvidia-power-limit ]]; then
+  power_limit+=("Configured: $(cat /etc/default/vast-nvidia-power-limit)")
+else
+  power_limit+=("Configured: not set — this is intentional unless operator chose a watt limit")
+fi
+
 bootstrap_cleanup=(
   "Run only after your final sudo user works and Vast is verified"
-  "sudo vast_post_install_cleanup - Run cleanup and hide this box"
+  "sudo vast_post_install_cleanup - Remove ISO/bootstrap leftovers"
+  "sudo vast_api_key_cleanup - Remove stored Vast CLI/API key config"
   "Optional: sudo vast_post_install_cleanup --remove-installer"
   "Verify sudo users after cleanup: getent group sudo"
 )
@@ -1494,6 +1702,12 @@ bootstrap_cleanup=(
   echo "✓ Change only if needed: sudo vast_port_range START-END"
   echo "✓ Check: sudo vast_port_check"
   echo
+  echo "Vast machine identity"
+  for line in "${machine_identity[@]}"; do echo "✓ $line"; done
+  echo
+  echo "GPU power limit"
+  for line in "${power_limit[@]}"; do echo "✓ $line"; done
+  echo
   echo "Quick stress-test commands"
   for line in "${quick[@]}"; do echo "✓ $line"; done
   echo
@@ -1506,6 +1720,7 @@ bootstrap_cleanup=(
   echo "Setup summary"
   echo "✓ vastsetup - Show this screen again"
   echo "✓ vast_install_summary - Same command, old name"
+  echo "✓ vastsetup --plain - Copy/paste friendly plain summary"
   echo
   echo "Optional next steps - Vast CLI"
   echo "vastai --help"
@@ -1526,6 +1741,11 @@ if [[ ! -r "$summary_file" ]]; then
   echo "No final Vast Host install summary found at $summary_file" >&2
   echo "Finish Phase 3 first, then run vastsetup again." >&2
   exit 1
+fi
+
+if [[ "${1:-}" == "--plain" || "${1:-}" == "plain" ]]; then
+  cat "$summary_file"
+  exit 0
 fi
 
 if [[ -t 1 ]]; then
@@ -1592,11 +1812,13 @@ install_report_box() {
   printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
+done_lines=(); port_lines=(); identity_lines=(); power_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
 while IFS= read -r line; do
   case "$line" in
     "What was done - full install report") section="done"; continue ;;
     "Vast.ai host port range") section="port"; continue ;;
+    "Vast machine identity") section="identity"; continue ;;
+    "GPU power limit") section="power"; continue ;;
     "Quick stress-test commands") section="quick"; continue ;;
     "Useful host polish commands") section="polish"; continue ;;
     "Post-install security cleanup") section="cleanup"; continue ;;
@@ -1611,6 +1833,8 @@ while IFS= read -r line; do
   case "$section" in
     done) done_lines+=("$line") ;;
     port) port_lines+=("$line") ;;
+    identity) identity_lines+=("$line") ;;
+    power) power_lines+=("$line") ;;
     quick) quick_lines+=("$line") ;;
     polish) polish_lines+=("$line") ;;
     cleanup) cleanup_lines+=("$line") ;;
@@ -1624,6 +1848,12 @@ success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 install_report_box "What was done - full install report" "${done_lines[@]}"
 if [[ "${#port_lines[@]}" -gt 0 ]]; then
   install_report_box "Vast.ai host port range" "${port_lines[@]}"
+fi
+if [[ "${#identity_lines[@]}" -gt 0 ]]; then
+  install_report_box "Vast machine identity" "${identity_lines[@]}"
+fi
+if [[ "${#power_lines[@]}" -gt 0 ]]; then
+  install_report_box "GPU power limit" "${power_lines[@]}"
 fi
 if [[ "${#quick_lines[@]}" -gt 0 ]]; then
   install_report_box "Quick stress-test commands" "${quick_lines[@]}"
@@ -1644,7 +1874,7 @@ SCRIPT
 chmod 0755 /usr/local/bin/vast_install_summary
 ln -sf vast_install_summary /usr/local/bin/vastsetup
 
-for cmd in vastai storage_layout disk_health vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup vast_install_summary vastsetup vast_post_install_cleanup; do
+for cmd in vastai storage_layout disk_health vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_machine_id vast_backup_identity vast_power_limit vast_api_key_cleanup vast_doctor vast_port_range vast_port_check rig-burn-cleanup vast_install_summary vastsetup vast_post_install_cleanup; do
   [[ -e "/usr/local/bin/$cmd" ]] || continue
   bash -n "/usr/local/bin/$cmd"
 done
@@ -1661,7 +1891,7 @@ fi
 
 cat >/var/lib/vast-host-installer/host-tools-installed.txt <<EOF
 installed_at=$(date -Is)
-commands=vastai vastsetup vast_install_summary vast_post_install_cleanup storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
+commands=vastai vastsetup vast_install_summary vast_post_install_cleanup vast_machine_id vast_backup_identity vast_power_limit vast_api_key_cleanup vast_doctor storage_layout vast_ready_check disk_health vast_cleanup vast_system_update vast_install_gpu_burn vast_install_gpu_fan_control vast_gpu_fan_mode vast_prepare_storage vast_port_range vast_port_check rig-burn-cleanup cpu_burn ram_burn memtester gpu_burn full_burn
 EOF
 
 echo "Installed Vast host tools. Run: vastsetup"
