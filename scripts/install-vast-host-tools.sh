@@ -924,8 +924,26 @@ install_rig_monitor_for_operator() {
   repo_dir="$target_home/rig-monitor"
 
   if [[ -d "$repo_dir/.git" ]]; then
-    sudo -H -u "$target_user" git -C "$repo_dir" pull --ff-only || true
-  elif [[ ! -d "$repo_dir" ]]; then
+    if sudo -H -u "$target_user" git -C "$repo_dir" diff --quiet --ignore-submodules -- && \
+       sudo -H -u "$target_user" git -C "$repo_dir" diff --cached --quiet --ignore-submodules --; then
+      sudo -H -u "$target_user" git -C "$repo_dir" fetch origin main || return 0
+      sudo -H -u "$target_user" git -C "$repo_dir" checkout -B main origin/main || return 0
+    else
+      local backup_dir
+      backup_dir="${repo_dir}.backup-$(date +%Y%m%d-%H%M%S)"
+      echo "Existing rig-monitor repo has local changes; moving it to $backup_dir"
+      mv "$repo_dir" "$backup_dir" || return 0
+      chown -R "$target_user:$target_user" "$backup_dir" 2>/dev/null || true
+      sudo -H -u "$target_user" git clone https://github.com/ftwlien/rig-monitor.git "$repo_dir" || return 0
+    fi
+  elif [[ -d "$repo_dir" ]]; then
+    local backup_dir
+    backup_dir="${repo_dir}.backup-$(date +%Y%m%d-%H%M%S)"
+    echo "Existing ~/rig-monitor is not a git repo; moving it to $backup_dir"
+    mv "$repo_dir" "$backup_dir" || return 0
+    chown -R "$target_user:$target_user" "$backup_dir" 2>/dev/null || true
+    sudo -H -u "$target_user" git clone https://github.com/ftwlien/rig-monitor.git "$repo_dir" || return 0
+  else
     sudo -H -u "$target_user" git clone https://github.com/ftwlien/rig-monitor.git "$repo_dir" || return 0
   fi
 
