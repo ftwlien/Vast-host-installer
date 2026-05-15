@@ -933,9 +933,7 @@ install_rig_monitor_for_operator() {
     sudo -H -u "$target_user" bash "$repo_dir/scripts/install.sh" || true
   fi
 }
-if ! command -v rig-monitor >/dev/null 2>&1; then
-  install_rig_monitor_for_operator
-fi
+install_rig_monitor_for_operator
 
 cat >/usr/local/bin/rig-burn-cleanup <<'SCRIPT'
 #!/usr/bin/env bash
@@ -1720,7 +1718,7 @@ bootstrap_cleanup=(
   echo "Setup summary"
   echo "✓ vastsetup - Show this screen again"
   echo "✓ vast_install_summary - Same command, old name"
-  echo "✓ vastsetup --plain - Copy/paste friendly plain summary"
+  echo "✓ vastsetup --plain - Plain CLI-style summary"
   echo
   echo "Optional next steps - Vast CLI"
   echo "vastai --help"
