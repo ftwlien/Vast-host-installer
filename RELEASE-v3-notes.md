@@ -1,6 +1,8 @@
-# Vast Host Installer v3 — RTX 5090 + Automatic RAID0 Storage
+# Vast Host Installer v3
 
-V3 is the big multi-NVMe / RTX 50 release. It keeps the installer simple for beginners while making the resulting Vast host much better suited for modern rental workloads.
+RTX 5090 / Blackwell support, CUDA 13.2 burn tooling, and automatic multi-NVMe RAID0 Docker storage for Vast.ai hosts.
+
+This release keeps the installer simple for beginners while making the resulting Vast host much better suited for modern rental workloads.
 
 ## Headline changes
 
