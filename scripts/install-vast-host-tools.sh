@@ -45,7 +45,7 @@ if command -v apt-get >/dev/null 2>&1; then
   apt-get update
   apt-get install -y smartmontools nvme-cli pciutils curl ca-certificates lsb-release mokutil parted gdisk xfsprogs python3-pip
   apt-get install -y speedtest-cli || true
-  apt-get install -y stress-ng stressapptest memtest86+ git build-essential nvidia-cuda-toolkit
+  apt-get install -y stress-ng stressapptest memtest86+ git build-essential
 fi
 
 target_user="${SUDO_USER:-}"
@@ -480,17 +480,92 @@ if ! command -v nvidia-smi >/dev/null 2>&1 || ! nvidia-smi >/dev/null 2>&1; then
   exit 1
 fi
 
+has_blackwell_gpu() {
+  nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null \
+    | grep -Eiq '(^|[[:space:]])(RTX[[:space:]]+50|RTX[[:space:]]+5090|RTX[[:space:]]+5080|RTX[[:space:]]+5070|B200|GB200|Blackwell|GB20)'
+}
+
+install_cuda_13_2_toolkit() {
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y curl ca-certificates gnupg lsb-release
+
+  # Remove old Ubuntu/repo CUDA toolkits that can leave /usr/bin/nvcc or
+  # /usr/local/cuda pointing at CUDA 11/12. Do NOT purge NVIDIA drivers.
+  local -a old_cuda_pkgs
+  mapfile -t old_cuda_pkgs < <(
+    dpkg-query -W -f='${binary:Package}\n' 2>/dev/null \
+      | grep -E '^(nvidia-cuda-toolkit|nvidia-cuda-dev|nvidia-cuda-gdb|nvidia-cuda-doc|nvidia-cuda-toolkit-doc|libcudart11\.0|cuda-(toolkit|compiler|command-line-tools)-1[12]-)' \
+      || true
+  )
+  if ((${#old_cuda_pkgs[@]})); then
+    apt-get purge -y "${old_cuda_pkgs[@]}"
+  fi
+  apt-get autoremove -y || true
+
+  local os_id os_version ubuntu_repo arch keyring_url keyring_deb
+  os_id="ubuntu"
+  os_version="2204"
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-ubuntu}"
+    os_version="${VERSION_ID:-22.04}"
+  fi
+  ubuntu_repo="ubuntu${os_version//./}"
+  case "$ubuntu_repo" in
+    ubuntu2204|ubuntu2404) ;;
+    *)
+      echo "Unsupported CUDA repo target ${os_id}/${os_version}; falling back to ubuntu2204 CUDA repo" >&2
+      ubuntu_repo="ubuntu2204"
+      ;;
+  esac
+
+  arch="$(dpkg --print-architecture)"
+  case "$arch" in
+    amd64) arch="x86_64" ;;
+    arm64) arch="sbsa" ;;
+    *) echo "Unsupported architecture for NVIDIA CUDA repo: ${arch}" >&2; exit 1 ;;
+  esac
+
+  keyring_url="https://developer.download.nvidia.com/compute/cuda/repos/${ubuntu_repo}/${arch}/cuda-keyring_1.1-1_all.deb"
+  keyring_deb="/tmp/cuda-keyring_1.1-1_all.deb"
+  curl -fsSL "$keyring_url" -o "$keyring_deb"
+  dpkg -i "$keyring_deb"
+  rm -f "$keyring_deb"
+  apt-get update
+  apt-get install -y cuda-toolkit-13-2
+
+  if [[ ! -x /usr/local/cuda-13.2/bin/nvcc ]]; then
+    echo "CUDA 13.2 install failed: /usr/local/cuda-13.2/bin/nvcc not found" >&2
+    exit 1
+  fi
+  ln -sfn /usr/local/cuda-13.2 /usr/local/cuda
+  /usr/local/cuda-13.2/bin/nvcc --version
+}
+
 export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update
-  apt-get install -y git build-essential nvidia-cuda-toolkit stress-ng stressapptest memtest86+
+  apt-get install -y git build-essential stress-ng stressapptest memtest86+
+fi
+
+cuda_make_args=()
+if has_blackwell_gpu; then
+  echo "Blackwell/RTX 50 GPU detected; installing CUDA Toolkit 13.2 for gpu_burn build"
+  install_cuda_13_2_toolkit
+  cuda_make_args=(COMPUTE=120 CUDAPATH=/usr/local/cuda-13.2 CUDA_VERSION=13.2.0)
+else
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get install -y nvidia-cuda-toolkit
+  fi
 fi
 
 workdir="/tmp/gpu-burn-build"
 install_dir="/opt/gpu-burn"
 rm -rf "$workdir"
 git clone https://github.com/wilicc/gpu-burn.git "$workdir"
-make -C "$workdir"
+make -C "$workdir" "${cuda_make_args[@]}"
 test -x "$workdir/gpu_burn"
 
 rm -rf "$install_dir"
@@ -573,10 +648,18 @@ echo "Run vastsetup again to refresh the report."
 SCRIPT
 chmod 0755 /usr/local/bin/vast_install_gpu_burn
 
+host_has_blackwell_gpu() {
+  command -v nvidia-smi >/dev/null 2>&1 \
+    && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null \
+    | grep -Eiq '(^|[[:space:]])(RTX[[:space:]]+50|RTX[[:space:]]+5090|RTX[[:space:]]+5080|RTX[[:space:]]+5070|B200|GB200|Blackwell|GB20)'
+}
+
 # Install gpu_burn/full_burn by default only when NVIDIA is already usable.
 # Fresh Ubuntu installs may run this before the NVIDIA driver is installed; do not
 # abort the whole host-tools install just because nvidia-smi is not ready yet.
-if ! command -v gpu_burn >/dev/null 2>&1 || [[ ! -x /usr/local/bin/full_burn ]]; then
+# Blackwell/RTX 50 hosts always rebuild so existing CUDA 11 gpu_burn installs get
+# upgraded to the CUDA 13.2/sm_120 build path.
+if host_has_blackwell_gpu || ! command -v gpu_burn >/dev/null 2>&1 || [[ ! -x /usr/local/bin/full_burn ]]; then
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
     /usr/local/bin/vast_install_gpu_burn
   else

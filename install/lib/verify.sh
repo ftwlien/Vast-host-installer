@@ -179,8 +179,57 @@ preflight_storage_layout() {
   return "$failed"
 }
 
+phase3_machine_id_menu() {
+  local choice machine_id_file="/var/lib/vastai_kaalia/machine_id" restored_id
+  [[ -t 0 ]] || return 0
+  while true; do
+    banner "Before Vast.ai Install/Register"
+    echo "If this is a reinstall/replacement and you saved the old Vast machine ID, restore it now."
+    echo "If this is a new host, skip restore and Vast will create a new identity."
+    echo
+    echo "Current machine ID: $(cat "$machine_id_file" 2>/dev/null || echo none)"
+    echo
+    echo "[1] Run Phase 3 preflight checks"
+    echo "[2] Restore preserved Vast machine ID first"
+    echo "[3] Show current Vast machine ID"
+    echo "[4] Show Phase 3 install command"
+    read -r -p "Choice [1]: " choice
+    choice="${choice:-1}"
+    case "$choice" in
+      1) return 0 ;;
+      2)
+        read -r -p "Paste existing Vast machine_id: " restored_id
+        if [[ -z "$restored_id" ]]; then
+          warn "Machine ID was empty; nothing restored."
+          continue
+        fi
+        if [[ ! "$restored_id" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+          warn "Machine ID contains unexpected characters; refusing to write it."
+          continue
+        fi
+        sudo install -d -m 0755 /var/lib/vastai_kaalia
+        printf '%s' "$restored_id" | sudo tee "$machine_id_file" >/dev/null
+        sudo chmod 0644 "$machine_id_file"
+        success "Restored Vast machine ID before Vast install/register: $(cat "$machine_id_file")"
+        ;;
+      3)
+        if [[ -f "$machine_id_file" ]]; then
+          echo "Vast machine ID: $(cat "$machine_id_file")"
+        else
+          echo "No Vast machine ID found yet."
+        fi
+        ;;
+      4)
+        command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
+        ;;
+      *) warn "Unknown choice: $choice" ;;
+    esac
+  done
+}
+
 preflight_phase3() {
   local failed=0 next_phase="" nvidia_ready=0
+  phase3_machine_id_menu
   banner "Phase 3 Preflight Check"
 
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
@@ -224,6 +273,22 @@ preflight_phase3() {
     failed=1
   fi
 
+  echo "CHECK=vast-machine-id"
+  if [[ -f /var/lib/vastai_kaalia/machine_id && -s /var/lib/vastai_kaalia/machine_id ]]; then
+    echo "RESULT=vast-machine-id:present:$(cat /var/lib/vastai_kaalia/machine_id)"
+  else
+    echo "RESULT=vast-machine-id:not-present"
+    echo "WARN=no preserved Vast machine ID found; Vast.ai will create/register a new identity"
+  fi
+
+  echo "CHECK=vast-power-limit"
+  if [[ -f /etc/default/vast-nvidia-power-limit ]]; then
+    sed 's/^/RESULT=/' /etc/default/vast-nvidia-power-limit
+  else
+    echo "RESULT=vast-power-limit:not-configured"
+    echo "INFO=persistent GPU power limit is optional and not enabled by default"
+  fi
+
   echo "CHECK=secure-boot"
   if command -v mokutil >/dev/null 2>&1; then
     if mokutil --sb-state 2>/dev/null | grep -qi 'enabled'; then
@@ -248,6 +313,19 @@ preflight_phase3() {
 
   if [[ "$failed" -eq 0 ]]; then
     success_banner "READY FOR PHASE 3"
+    echo "Final pre-Vast install summary:"
+    echo "  Machine ID: $(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || echo missing/new identity)"
+    echo "  Port range: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)"
+    echo "  Power limit: $(cat /etc/default/vast-nvidia-power-limit 2>/dev/null || echo not configured)"
+    echo "  NVIDIA persistence mode: $(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || echo unknown)"
+    echo
+    if [[ -t 0 ]]; then
+      read -r -p "Continue to Vast.ai install/register with this state? [y/N]: " confirm_phase3
+      case "$confirm_phase3" in
+        y|Y|yes|YES) ;;
+        *) echo "Cancelled. Re-run --preflight-phase3 when ready."; exit 0 ;;
+      esac
+    fi
     command_box "sudo /opt/vast-host-installer/bin/vast-host-installer --resume"
   else
     die "Phase 3 preflight failed. Fix the failed checks above before running --resume."

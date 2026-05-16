@@ -11,6 +11,9 @@ infer_profile_from_layout() {
     two-disk)
       echo "fresh-two-disk"
       ;;
+    multi-disk)
+      echo "fresh-multi-disk-raid0"
+      ;;
     *)
       echo "fresh-basic"
       ;;

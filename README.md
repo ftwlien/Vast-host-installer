@@ -22,13 +22,43 @@ Watch the full setup walkthrough here:
 
 Current recommended ISO:
 
-- **`vast-host-installer-jammy-v2.iso`**
+- **`vast-host-installer-jammy-v3.iso`**
 - Ubuntu Server 22.04 Jammy-based custom Vast.ai host ISO
-- Boots/stages the installer cleanly from USB with a local payload at `/opt/vast-host-installer`
-- Includes the polished Phase 3 summary, burn-test suite, port helpers, readiness checks, existing-rig tools, `vastsetup`, post-install cleanup, and switchable GPU fan modes
+- Automatic smart storage layout for Vast hosts:
+  - smallest internal disk becomes Ubuntu/EFI/boot
+  - one extra internal data disk becomes XFS Docker/Vast storage
+  - two or more extra internal data disks become RAID0 XFS Docker/Vast storage at `/var/lib/docker`
+  - USB/removable installer media is excluded from disk selection
+- RTX 5090 / Blackwell-ready burn tooling with CUDA Toolkit 13.2 and `sm_120` gpu-burn builds
+- Includes machine-ID helper, optional persistent power-limit helper, polished Phase 3 summary, burn-test suite, port helpers, readiness checks, `vastsetup`, post-install cleanup, and switchable GPU fan modes
 - SHA256: see the `.sha256` file attached to the GitHub release
 
 ---
+
+## What is new in v3
+
+V3 is the first release aimed squarely at modern RTX 50 / Blackwell Vast hosts with multiple NVMe drives.
+
+Highlights:
+
+- **Automatic multi-disk storage planning for the ISO path**
+  - chooses the smallest suitable internal disk for Ubuntu/EFI/boot
+  - uses remaining internal disks for Vast/Docker storage
+  - creates `/dev/md0` RAID0 automatically when 2+ data disks are available
+  - formats Docker/Vast storage as XFS with project quotas (`prjquota`)
+  - excludes USB/removable installer media from disk selection
+- **RTX 5090 / Blackwell gpu-burn fix**
+  - installs CUDA Toolkit 13.2 for Blackwell burn tooling
+  - removes old CUDA 11/12 toolkit packages without removing NVIDIA drivers
+  - builds gpu-burn for `sm_120` with CUDA 13.2
+  - forces a rebuild on Blackwell systems instead of reusing stale binaries
+- **Safer host operations**
+  - Vast machine ID helper for reinstall/disk-replacement workflows
+  - optional persistent GPU power-limit helper, not enabled by default
+  - Docker fallback before Vast install if Docker is missing/inactive
+  - stronger final validation for storage, Docker, NVIDIA runtime, Vast services, and burn tools
+
+Real-world validation: this ISO flow was tested on RTX 5090 rigs with CUDA 13.2, NVIDIA `595.58.03`, Blackwell gpu-burn `sm_120`, and automatic RAID0 Docker storage.
 
 ## What the final setup summary looks like
 
@@ -61,13 +91,26 @@ Use this if you want the simplest install.
 
 The ISO path handles Ubuntu install + Vast host setup in one guided flow.
 
-This is the best choice if you want the installer to prepare the standard single-disk layout automatically:
+This is the best choice if you want the installer to prepare storage automatically. On modern multi-NVMe rigs, the ISO now favors a safer and faster Vast layout:
+
+```text
+Smallest internal disk:
+  EFI + Ubuntu root OS
+
+Remaining internal data disk(s):
+  1 disk  -> XFS mounted at /var/lib/docker
+  2+ disks -> Linux mdadm RAID0 /dev/md0, XFS mounted at /var/lib/docker
+```
+
+Single large-disk rigs still get the classic split layout:
 
 ```text
 EFI:              1G
 /:                100G ext4
 /var/lib/docker:  rest of disk, XFS/prjquota
 ```
+
+The point is simple: keep Ubuntu small and boring, then give Vast/Docker the fast scratch space where customers actually need it.
 
 ---
 
@@ -826,13 +869,52 @@ rig-monitor
 
 ## Disk/layout notes
 
-The installer supports these fresh-install layouts:
+The ISO storage policy is designed for Vast.ai rental rigs: keep the OS isolated, then give Docker/Vast a large, fast XFS scratch volume.
 
-- **single-disk rigs**: root plus Docker/Vast storage split when the disk is large enough
-- **two-disk/multi-disk rigs**: root stays on the OS disk; the largest suitable non-root disk can be used for `/var/lib/docker`
-- **valid Docker XFS split layouts**: accepted even when the Docker partition is on the same physical disk as root
+### Fresh ISO install storage policy
 
-The installer explains the planned storage layout before applying destructive storage changes. Still, the safest beginner rule is simple:
+On a fresh ISO install, the autoinstall storage generator looks only at suitable internal disks and excludes USB/removable installer media. It then picks storage like this:
+
+```text
+1 internal disk:
+  disk -> EFI + Ubuntu root + /var/lib/docker XFS split
+
+2 internal disks:
+  smallest disk -> EFI + Ubuntu root
+  other disk    -> XFS mounted at /var/lib/docker
+
+3+ internal disks:
+  smallest disk       -> EFI + Ubuntu root
+  every remaining disk -> mdadm RAID0 /dev/md0
+  /dev/md0            -> XFS mounted at /var/lib/docker
+```
+
+### How the automatic RAID0 works
+
+For machines with two or more data disks after the OS disk is selected, the ISO creates Linux software RAID0 with `mdadm`:
+
+1. select smallest internal disk as the OS disk
+2. wipe/partition the remaining selected internal data disks
+3. create one RAID member partition on each data disk
+4. assemble them into `/dev/md0` with RAID0 striping
+5. format `/dev/md0` as XFS
+6. mount it at `/var/lib/docker` with project quotas (`prjquota`)
+7. write `/etc/mdadm/mdadm.conf` and `/etc/fstab` so the array comes back after reboot
+
+That gives Vast customers one big, fast Docker storage pool instead of wasting high-speed NVMe drives as idle separate disks.
+
+Example from a 2×4TB data-disk host:
+
+```text
+/dev/nvme0n1  -> Ubuntu/EFI/boot
+/dev/nvme1n1  -> RAID0 member
+/dev/nvme2n1  -> RAID0 member
+/dev/md0      -> XFS /var/lib/docker
+```
+
+Important tradeoff: RAID0 is **performance and capacity**, not redundancy. If any RAID0 member disk dies, the Docker/Vast storage on the array is lost. That is acceptable for typical Vast scratch/cache/container workloads, but do not store irreplaceable data there.
+
+The installer explains the planned storage layout before destructive storage changes. Still, the safest beginner rule is simple:
 
 > If you do not want a disk touched, unplug it before installing.
 
@@ -921,6 +1003,7 @@ Implemented:
 - first-run questionnaire
 - three-phase resume workflow
 - single/multi-disk detection
+- automatic RAID0 Docker/Vast storage for multi-NVMe ISO installs
 - Docker/Vast storage prep
 - NVIDIA open-driver setup
 - Vast interactive installer handoff
@@ -943,7 +1026,6 @@ Still planned:
 
 - same-id reinstall profile
 - clean reinstall profile
-- richer generated storage policy matrix
 - more public screenshots/videos/tutorial polish
 
 ---

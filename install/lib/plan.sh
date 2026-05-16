@@ -23,6 +23,9 @@ emit_plan_preview() {
     two-disk)
       echo "PLAN_STORAGE=keep OS on root disk; use largest non-root disk for Docker/Vast data"
       ;;
+    multi-disk)
+      echo "PLAN_STORAGE=keep OS on root disk; use all non-root internal disks as RAID0 Docker/Vast data"
+      ;;
     *)
       echo "PLAN_STORAGE=ambiguous; manual operator review required"
       ;;
@@ -45,6 +48,10 @@ emit_plan_preview() {
       ;;
     two-disk)
       echo "Storage action: create one XFS partition on ${data_disk}, mount it at /var/lib/docker, persist in /etc/fstab"
+      echo "Confirmation: script will explain the plan in plain English and ask before doing destructive disk changes"
+      ;;
+    multi-disk)
+      echo "Storage action: create RAID0 across all non-root internal disks, format XFS, mount it at /var/lib/docker, persist mdadm/fstab"
       echo "Confirmation: script will explain the plan in plain English and ask before doing destructive disk changes"
       ;;
     *)

@@ -361,6 +361,9 @@ if [[ "$FIRST_BOOT_MODE" -eq 1 ]]; then
       fresh-two-disk)
         ensure_two_disk_storage_layout
         ;;
+      fresh-multi-disk-raid0)
+        ensure_multi_disk_raid0_storage_layout
+        ;;
       *)
         die "Unknown profile for first-run prep phase: $PROFILE"
         ;;
@@ -468,6 +471,24 @@ if [[ "$RESUME_AFTER_NVIDIA_REBOOT" -eq 1 ]]; then
   require_interactive_phase3
 fi
 
+if [[ "$RESUME_AFTER_NVIDIA_REBOOT" -eq 1 && -t 0 ]]; then
+  install_vast_machine_id_tool
+  install_vast_power_limit_tool
+  banner "Optional Persistent GPU Power Limit"
+  echo "This is NOT enabled by default. Set it only if you want a reboot-persistent NVIDIA power cap."
+  echo "It keeps NVIDIA persistence mode ON (-pm 1), which is the safer Vast host behavior."
+  echo
+  read -r -p "Power limit watts for all GPUs (blank to skip): " VAST_POWER_LIMIT_WATTS
+  if [[ -n "${VAST_POWER_LIMIT_WATTS:-}" ]]; then
+    case "$VAST_POWER_LIMIT_WATTS" in
+      *[!0-9]*) die "Power limit must be a whole number of watts, or blank to skip." ;;
+      *) sudo vast_power_limit "$VAST_POWER_LIMIT_WATTS" ;;
+    esac
+  else
+    log "persistent GPU power limit skipped by operator choice"
+  fi
+fi
+
 if [[ "$APPLY_CHANGES" -ne 1 ]]; then
   die "Refusing to apply changes without --apply. Use --plan-only first to inspect the plan."
 fi
@@ -481,6 +502,9 @@ case "$PROFILE" in
     ;;
   fresh-two-disk)
     run_profile_fresh_two_disk
+    ;;
+  fresh-multi-disk-raid0)
+    run_profile_fresh_basic
     ;;
   reinstall-same-id|reinstall-clean)
     die "Profile $PROFILE is planned but not implemented yet"
@@ -568,6 +592,14 @@ host_polish_lines=(
   "sudo vast_system_update - Manual updates when idle"
   "sudo vast_cleanup - Clean idle/unlisted host leftovers"
   "sudo vast_port_check - Verify Vast host ports"
+  "sudo vast_machine_id show - Show/save Vast machine ID before reinstall"
+  "sudo vast_machine_id restore <id> - Restore ID before Vast install/register"
+  "sudo vast_backup_identity - Print machine ID + port range backup"
+  "sudo vast_doctor - One-shot health check for Vast host"
+  "sudo vast_power_limit <watts> - Optional persistent GPU power limit"
+  "sudo vast_power_limit status - Show current/default/max power limits"
+  "sudo vast_power_limit disable - Remove persistent GPU power limit"
+  "sudo vast_api_key_cleanup - Remove stored Vast CLI/API key config"
   "sudo rig-burn-cleanup - Kill stuck burn-test leftovers"
 )
 if command -v vast_gpu_fan_mode >/dev/null 2>&1; then
@@ -661,28 +693,8 @@ if [[ "$remove_installer" -eq 1 ]]; then
   rm -rf /opt/vast-host-installer /usr/local/bin/vast-host-installer-source
 fi
 
-summary_file="/var/lib/vast-host-installer/final-summary.txt"
-if [[ -f "$summary_file" ]]; then
-  python3 - "$summary_file" <<'PY_SUMMARY_CLEANUP'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-lines = path.read_text().splitlines()
-out = []
-i = 0
-while i < len(lines):
-    if lines[i] == "Post-install security cleanup":
-        i += 1
-        while i < len(lines) and lines[i].startswith("✓ "):
-            i += 1
-        if i < len(lines) and lines[i] == "":
-            i += 1
-        continue
-    out.append(lines[i])
-    i += 1
-path.write_text("\n".join(out).rstrip() + "\n")
-PY_SUMMARY_CLEANUP
-fi
+# Keep the Post-install security cleanup section in vastsetup.
+# It includes long-term helpers such as vast_api_key_cleanup that may be useful later.
 
 echo
 echo "Cleanup complete. Current sudo group:"
@@ -697,9 +709,46 @@ SCRIPT
 sudo chmod 0755 "$post_cleanup_cmd"
 sudo bash -n "$post_cleanup_cmd"
 
+machine_id_masked="missing/new identity"
+if machine_id_raw="$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null)" && [[ -n "$machine_id_raw" ]]; then
+  if [[ ${#machine_id_raw} -gt 14 ]]; then
+    machine_id_masked="${machine_id_raw:0:6}...${machine_id_raw: -5}"
+  else
+    machine_id_masked="$machine_id_raw"
+  fi
+fi
+machine_identity_lines=(
+  "Machine ID: $machine_id_masked"
+  "Show/save before reinstall: sudo vast_machine_id show"
+  "Restore before Vast install/register: sudo vast_machine_id restore <id>"
+  "Backup identity + ports: sudo vast_backup_identity"
+)
+
+pm_values="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+if echo "$pm_values" | grep -qi 'Disabled'; then
+  pm_status="not fully enabled ($pm_values)"
+elif [[ -n "$pm_values" ]]; then
+  pm_status="enabled/running ($pm_values)"
+else
+  pm_status="unknown"
+fi
+power_limit_lines=(
+  "NVIDIA persistence mode: $pm_status"
+  "Persistent power-limit service: $(systemctl is-enabled vast-nvidia-power-limit.service 2>/dev/null || echo disabled/not configured)"
+  "Show current/default/max: sudo vast_power_limit status"
+  "Set only by operator choice: sudo vast_power_limit <watts>"
+  "Disable: sudo vast_power_limit disable"
+)
+if [[ -f /etc/default/vast-nvidia-power-limit ]]; then
+  power_limit_lines+=("Configured: $(cat /etc/default/vast-nvidia-power-limit)")
+else
+  power_limit_lines+=("Configured: not set — this is intentional unless operator chose a watt limit")
+fi
+
 bootstrap_cleanup_lines=(
   "Run only after your final sudo user works and Vast is verified"
-  "sudo vast_post_install_cleanup - Run cleanup and hide this box"
+  "sudo vast_post_install_cleanup - Remove ISO/bootstrap leftovers"
+  "sudo vast_api_key_cleanup - Remove stored Vast CLI/API key config"
   "Optional: sudo vast_post_install_cleanup --remove-installer"
   "Verify sudo users after cleanup: getent group sudo"
 )
@@ -737,6 +786,16 @@ summary_tmp="$(mktemp)"
   echo "✓ Change only if needed: sudo vast_port_range START-END"
   echo "✓ Check: sudo vast_port_check"
   echo
+  echo "Vast machine identity"
+  for line in "${machine_identity_lines[@]}"; do
+    echo "✓ $line"
+  done
+  echo
+  echo "GPU power limit"
+  for line in "${power_limit_lines[@]}"; do
+    echo "✓ $line"
+  done
+  echo
   echo "Quick stress-test commands"
   for line in "${stress_test_lines[@]}"; do
     echo "✓ $line"
@@ -755,6 +814,7 @@ summary_tmp="$(mktemp)"
   echo "Setup summary"
   echo "✓ vastsetup - Show this screen again"
   echo "✓ vast_install_summary - Same command, old name"
+  echo "✓ vastsetup --plain - Plain CLI-style summary"
   if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
     echo
     echo "Optional next steps - Vast CLI"
@@ -778,6 +838,11 @@ if [[ ! -r "$summary_file" ]]; then
   echo "No final Vast Host install summary found at $summary_file" >&2
   echo "Finish Phase 3 first, then run vastsetup again." >&2
   exit 1
+fi
+
+if [[ "${1:-}" == "--plain" || "${1:-}" == "plain" ]]; then
+  cat "$summary_file"
+  exit 0
 fi
 
 if [[ -t 1 ]]; then
@@ -844,11 +909,13 @@ install_report_box() {
   printf '%b╰%s╯%b\n' "$C_SKY$C_BOLD" "$(_box_line '─' "$width")" "$C_RESET"
 }
 
-done_lines=(); port_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
+done_lines=(); port_lines=(); identity_lines=(); power_lines=(); quick_lines=(); polish_lines=(); cleanup_lines=(); setup_lines=(); cli_lines=(); section=""
 while IFS= read -r line; do
   case "$line" in
     "What was done - full install report") section="done"; continue ;;
     "Vast.ai host port range") section="port"; continue ;;
+    "Vast machine identity") section="identity"; continue ;;
+    "GPU power limit") section="power"; continue ;;
     "Quick stress-test commands") section="quick"; continue ;;
     "Useful host polish commands") section="polish"; continue ;;
     "Post-install security cleanup") section="cleanup"; continue ;;
@@ -863,6 +930,8 @@ while IFS= read -r line; do
   case "$section" in
     done) done_lines+=("$line") ;;
     port) port_lines+=("$line") ;;
+    identity) identity_lines+=("$line") ;;
+    power) power_lines+=("$line") ;;
     quick) quick_lines+=("$line") ;;
     polish) polish_lines+=("$line") ;;
     cleanup) cleanup_lines+=("$line") ;;
@@ -876,6 +945,12 @@ success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 install_report_box "What was done - full install report" "${done_lines[@]}"
 if [[ "${#port_lines[@]}" -gt 0 ]]; then
   install_report_box "Vast.ai host port range" "${port_lines[@]}"
+fi
+if [[ "${#identity_lines[@]}" -gt 0 ]]; then
+  install_report_box "Vast machine identity" "${identity_lines[@]}"
+fi
+if [[ "${#power_lines[@]}" -gt 0 ]]; then
+  install_report_box "GPU power limit" "${power_lines[@]}"
 fi
 if [[ "${#quick_lines[@]}" -gt 0 ]]; then
   install_report_box "Quick stress-test commands" "${quick_lines[@]}"
@@ -902,12 +977,14 @@ success_banner "PHASE 3 COMPLETE - VAST SETUP FINISHED"
 install_report_box "What was done - full install report" "${phase3_done_lines[@]}"
 port_lines=("Current: $(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || echo missing)" "Show current: cat /var/lib/vastai_kaalia/host_port_range" "Change only if needed: sudo vast_port_range START-END" "Check: sudo vast_port_check")
 install_report_box "Vast.ai host port range" "${port_lines[@]}"
+install_report_box "Vast machine identity" "${machine_identity_lines[@]}"
+install_report_box "GPU power limit" "${power_limit_lines[@]}"
 if [[ "${#stress_test_lines[@]}" -gt 0 ]]; then
   install_report_box "Quick stress-test commands" "${stress_test_lines[@]}"
 fi
 install_report_box "Useful host polish commands" "${host_polish_lines[@]}"
 install_report_box "Post-install security cleanup" "${bootstrap_cleanup_lines[@]}"
-install_report_box "Setup summary" "vastsetup - Show this screen again" "vast_install_summary - Same command, old name"
+install_report_box "Setup summary" "vastsetup - Show this screen again" "vast_install_summary - Same command, old name" "vastsetup --plain - Plain CLI-style summary"
 if [[ "$WITH_VAST_CLI" -eq 1 ]]; then
   echo "Optional next steps: connect the Vast CLI and test this machine."
   command_list_box \

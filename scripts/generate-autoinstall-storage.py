@@ -59,10 +59,8 @@ def _parse_lsblk_disks(output: str) -> list[Disk]:
 
 
 def _select_target_disks(disks: list[Disk]) -> list[Disk]:
-    if len(disks) == 1:
-        return [disks[0]]
-    if len(disks) >= 2:
-        return [disks[0], disks[-1]]
+    if disks:
+        return disks
     raise RuntimeError('ambiguous storage layout: no installable disks found')
 
 
@@ -172,8 +170,10 @@ def detect_mode() -> str:
     disks = _lsblk_disks()
     if len(disks) == 1:
         return 'single-disk'
-    if len(disks) >= 2:
+    if len(disks) == 2:
         return 'two-disk'
+    if len(disks) >= 3:
+        return 'smallest-os-raid0'
     raise RuntimeError(
         'ambiguous storage layout: no installable disks found'
     )
@@ -350,6 +350,113 @@ storage:
 """.strip()
 
 
+def emit_smallest_os_raid0_yaml(
+    os_disk_path: str | None = None,
+    data_disk_paths: list[str] | None = None,
+    uefi_boot: bool = False,
+) -> str:
+    data_disk_paths = data_disk_paths or []
+    data_disk_blocks: list[str] = []
+    data_partition_ids: list[str] = []
+    for idx, path in enumerate(data_disk_paths):
+        disk_id = f'data-disk-{idx}'
+        part_id = f'data-partition-{idx}'
+        data_partition_ids.append(part_id)
+        data_disk_blocks.append(f"""
+    - type: disk
+      id: {disk_id}
+{_disk_locator_yaml(path, 'largest')}
+      ptable: gpt
+      wipe: superblock-recursive
+      preserve: false
+    - type: partition
+      id: {part_id}
+      device: {disk_id}
+      size: -1
+""".rstrip())
+
+    if len(data_partition_ids) == 0:
+        data_tail = ''
+    elif len(data_partition_ids) == 1:
+        data_tail = f"""
+    - type: format
+      id: docker-format
+      volume: {data_partition_ids[0]}
+      fstype: xfs
+    - type: mount
+      id: docker-mount
+      path: /var/lib/docker
+      device: docker-format
+      options: defaults,prjquota
+""".rstrip()
+    else:
+        devices_yaml = '[' + ', '.join(data_partition_ids) + ']'
+        data_tail = f"""
+    - type: raid
+      id: docker-raid0
+      name: md0
+      raidlevel: 0
+      devices: {devices_yaml}
+      preserve: false
+    - type: format
+      id: docker-format
+      volume: docker-raid0
+      fstype: xfs
+    - type: mount
+      id: docker-mount
+      path: /var/lib/docker
+      device: docker-format
+      options: defaults,nofail,prjquota
+""".rstrip()
+
+    return f"""
+storage:
+  swap:
+    size: 0
+  config:
+    - type: disk
+      id: os-disk
+{_disk_locator_yaml(os_disk_path, 'smallest')}
+      ptable: gpt
+      wipe: superblock-recursive
+      preserve: false
+{_grub_device_line(not uefi_boot)}
+    - type: partition
+      id: bios-boot
+      device: os-disk
+      size: 1048576
+      flag: bios_grub
+    - type: partition
+      id: efi-partition
+      device: os-disk
+      size: 550M
+      flag: boot
+{_grub_device_line(uefi_boot)}
+    - type: format
+      id: efi-format
+      volume: efi-partition
+      fstype: fat32
+    - type: mount
+      id: efi-mount
+      path: /boot/efi
+      device: efi-format
+    - type: partition
+      id: root-partition
+      device: os-disk
+      size: -1
+    - type: format
+      id: root-format
+      volume: root-partition
+      fstype: ext4
+    - type: mount
+      id: root-mount
+      path: /
+      device: root-format
+{chr(10).join(data_disk_blocks)}
+{data_tail}
+""".strip()
+
+
 def emit_storage_yaml(mode: str) -> str:
     if mode == 'auto':
         disks = _lsblk_disks()
@@ -360,10 +467,16 @@ def emit_storage_yaml(mode: str) -> str:
                 os_disk_path=disks[0].path,
                 uefi_boot=uefi_boot,
             )
-        if len(disks) >= 2:
+        if len(disks) == 2:
             return emit_two_disk_yaml(
                 os_disk_path=disks[0].path,
                 data_disk_path=disks[-1].path,
+                uefi_boot=uefi_boot,
+            )
+        if len(disks) >= 3:
+            return emit_smallest_os_raid0_yaml(
+                os_disk_path=disks[0].path,
+                data_disk_paths=[disk.path for disk in disks[1:]],
                 uefi_boot=uefi_boot,
             )
         raise RuntimeError(
@@ -373,6 +486,8 @@ def emit_storage_yaml(mode: str) -> str:
         return emit_single_disk_yaml()
     if mode == 'two-disk':
         return emit_two_disk_yaml()
+    if mode == 'smallest-os-raid0':
+        return emit_smallest_os_raid0_yaml(data_disk_paths=[None, None])
     raise ValueError(f'unsupported mode: {mode}')
 
 
@@ -382,7 +497,7 @@ def rewrite_autoinstall(path: Path, mode: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['single-disk', 'two-disk', 'auto'], default='auto')
+    parser.add_argument('--mode', choices=['single-disk', 'two-disk', 'smallest-os-raid0', 'auto'], default='auto')
     parser.add_argument('--rewrite-autoinstall', type=Path)
     parser.add_argument('--prepare-target-disks', action='store_true')
     args = parser.parse_args()

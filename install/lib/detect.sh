@@ -51,6 +51,15 @@ largest_non_root_disk() {
   lsblk -b -dn -o NAME,SIZE,TYPE,RM,TRAN | awk -v root="$root" '$3 == "disk" && $1 != root && $4 != "1" && tolower($5) != "usb" {print $1 " " $2}' | sort -k2,2nr | head -n1 | awk '{print "/dev/" $1}'
 }
 
+list_non_root_disks_by_size_asc() {
+  local root
+  root="$(basename "$(get_root_disk || echo '')")"
+  lsblk -b -dn -o NAME,SIZE,TYPE,RM,TRAN \
+    | awk -v root="$root" '$3 == "disk" && $1 != root && $4 != "1" && tolower($5) != "usb" {print $1 " " $2}' \
+    | sort -k2,2n \
+    | awk '{print "/dev/" $1}'
+}
+
 count_real_disks() {
   lsblk -dn -o TYPE,RM,TRAN | awk '$1 == "disk" && $2 != "1" && tolower($3) != "usb" {count++} END {print count+0}'
 }
@@ -65,6 +74,10 @@ classify_layout() {
   fi
   if [ "$disk_count" -eq 2 ] && [ -n "$data_disk" ]; then
     echo two-disk
+    return 0
+  fi
+  if [ "$disk_count" -ge 3 ]; then
+    echo multi-disk
     return 0
   fi
   echo ambiguous

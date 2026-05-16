@@ -129,7 +129,7 @@ def sha512_crypt_fallback(password: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['single-disk', 'two-disk', 'auto'], default='auto')
+    parser.add_argument('--mode', choices=['single-disk', 'two-disk', 'smallest-os-raid0', 'auto'], default='auto')
     parser.add_argument('--hostname', default='vast-bootstrap')
     parser.add_argument('--username', default='vastbootstrap')
     parser.add_argument('--password-hash', default='')

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 autoinstall_rank_disks() {
-  lsblk -b -dn -o NAME,SIZE,TYPE | awk '$3 == "disk" {print "/dev/" $1 "|" $2}' | sort -t'|' -k2,2n
+  lsblk -b -dn -o NAME,SIZE,TYPE,RM,TRAN | awk '$3 == "disk" && $4 != "1" && tolower($5) != "usb" {print "/dev/" $1 "|" $2}' | sort -t'|' -k2,2n
 }
 
 autoinstall_smallest_disk() {
@@ -28,7 +28,7 @@ autoinstall_layout_classification() {
     echo two-disk
     return 0
   fi
-  echo ambiguous
+  echo multi-disk-raid0
 }
 
 emit_autoinstall_storage_policy() {
@@ -49,6 +49,12 @@ emit_autoinstall_storage_policy() {
     two-disk)
       echo "AUTOINSTALL_OS_DISK=${smallest:-none}"
       echo "AUTOINSTALL_DATA_DISK=${largest:-none}"
+      ;;
+    multi-disk-raid0)
+      echo "AUTOINSTALL_OS_DISK=${smallest:-none}"
+      echo "AUTOINSTALL_DATA_DISKS=$(autoinstall_rank_disks | tail -n +2 | cut -d'|' -f1 | paste -sd, -)"
+      echo "AUTOINSTALL_RAID_LEVEL=0"
+      echo "AUTOINSTALL_RAID_TARGET=/var/lib/docker"
       ;;
     *)
       echo "AUTOINSTALL_OS_DISK=undecided"

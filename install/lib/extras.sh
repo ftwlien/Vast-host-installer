@@ -20,6 +20,70 @@ installer_target_home() {
   printf '%s\n' "$target_home"
 }
 
+
+has_blackwell_gpu() {
+  nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null \
+    | grep -Eiq '(^|[[:space:]])(RTX[[:space:]]+50|RTX[[:space:]]+5090|RTX[[:space:]]+5080|RTX[[:space:]]+5070|B200|GB200|Blackwell|GB20)'
+}
+
+install_cuda_13_2_toolkit_for_blackwell() {
+  banner "CUDA Toolkit 13.2 for Blackwell/RTX 50 Burn Tools"
+  step "Installing CUDA repo prerequisites"
+  sudo apt-get update
+  sudo apt-get install -y curl ca-certificates gnupg lsb-release
+
+  step "Removing old CUDA 11/12 toolkit packages without touching NVIDIA drivers"
+  local -a old_cuda_pkgs
+  mapfile -t old_cuda_pkgs < <(
+    dpkg-query -W -f='${binary:Package}\n' 2>/dev/null \
+      | grep -E '^(nvidia-cuda-toolkit|nvidia-cuda-dev|nvidia-cuda-gdb|nvidia-cuda-doc|nvidia-cuda-toolkit-doc|libcudart11\.0|cuda-(toolkit|compiler|command-line-tools)-1[12]-)' \
+      || true
+  )
+  if ((${#old_cuda_pkgs[@]})); then
+    sudo apt-get purge -y "${old_cuda_pkgs[@]}"
+  fi
+  sudo apt-get autoremove -y || true
+
+  local os_id os_version ubuntu_repo arch keyring_url keyring_deb
+  os_id="ubuntu"
+  os_version="22.04"
+  if [[ -r /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os_id="${ID:-ubuntu}"
+    os_version="${VERSION_ID:-22.04}"
+  fi
+  ubuntu_repo="ubuntu${os_version//./}"
+  case "$ubuntu_repo" in
+    ubuntu2204|ubuntu2404) ;;
+    *)
+      log "Unsupported CUDA repo target ${os_id}/${os_version}; falling back to ubuntu2204 CUDA repo"
+      ubuntu_repo="ubuntu2204"
+      ;;
+  esac
+
+  arch="$(dpkg --print-architecture)"
+  case "$arch" in
+    amd64) arch="x86_64" ;;
+    arm64) arch="sbsa" ;;
+    *) die "Unsupported architecture for NVIDIA CUDA repo: ${arch}" ;;
+  esac
+
+  keyring_url="https://developer.download.nvidia.com/compute/cuda/repos/${ubuntu_repo}/${arch}/cuda-keyring_1.1-1_all.deb"
+  keyring_deb="/tmp/cuda-keyring_1.1-1_all.deb"
+  step "Installing NVIDIA CUDA apt keyring for ${ubuntu_repo}/${arch}"
+  curl -fsSL "$keyring_url" -o "$keyring_deb"
+  sudo dpkg -i "$keyring_deb"
+  rm -f "$keyring_deb"
+
+  step "Installing cuda-toolkit-13-2"
+  sudo apt-get update
+  sudo apt-get install -y cuda-toolkit-13-2
+  [[ -x /usr/local/cuda-13.2/bin/nvcc ]] || die "CUDA 13.2 install failed: /usr/local/cuda-13.2/bin/nvcc not found"
+  sudo ln -sfn /usr/local/cuda-13.2 /usr/local/cuda
+  /usr/local/cuda-13.2/bin/nvcc --version
+}
+
 install_vast_cli() {
   local target_user target_home user_local_bin vastai_bin wrapper
 
@@ -170,7 +234,7 @@ install_gpu_burn() {
 
   step "Installing gpu-burn build dependencies"
   sudo apt-get update
-  sudo apt-get install -y git build-essential nvidia-cuda-toolkit
+  sudo apt-get install -y git build-essential
 
   if [[ -d "$repo_dir/.git" ]]; then
     step "Updating existing gpu-burn repo"
@@ -180,8 +244,18 @@ install_gpu_burn() {
     sudo -H -u "$target_user" git clone https://github.com/wilicc/gpu-burn.git "$repo_dir"
   fi
 
+  local -a cuda_make_args
+  cuda_make_args=()
+  if has_blackwell_gpu; then
+    install_cuda_13_2_toolkit_for_blackwell
+    cuda_make_args=(COMPUTE=120 CUDAPATH=/usr/local/cuda-13.2 CUDA_VERSION=13.2.0)
+  else
+    step "Installing legacy gpu-burn CUDA build dependency"
+    sudo apt-get install -y nvidia-cuda-toolkit
+  fi
+
   step "Building gpu-burn"
-  sudo -H -u "$target_user" make -C "$repo_dir"
+  sudo -H -u "$target_user" make -C "$repo_dir" "${cuda_make_args[@]}"
   [[ -x "$binary" ]] || die "gpu-burn build failed: ${binary} was not created"
 
   step "Installing gpu-burn runtime files"
@@ -442,6 +516,266 @@ EOF
   sudo chmod 0755 "$wrapper"
   sudo bash -n "$wrapper"
   success "Full burn installed. Test with: full_burn 7200"
+}
+
+install_vast_machine_id_tool() {
+  local vast_machine_id="/usr/local/bin/vast_machine_id"
+  step "Installing Vast machine ID helper"
+  sudo tee "$vast_machine_id" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+machine_id_file="/var/lib/vastai_kaalia/machine_id"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  sudo vast_machine_id show
+  sudo vast_machine_id restore <machine_id>
+
+Use show before reinstalling/wiping a Vast host so you can save the current
+identity. Use restore during fresh setup before Vast.ai installs/registers.
+EOF
+}
+
+cmd="${1:-show}"
+case "$cmd" in
+  show)
+    if [[ -f "$machine_id_file" ]]; then
+      echo "Vast machine ID: $(cat "$machine_id_file")"
+      echo
+      echo "Save this value somewhere safe before reinstalling if you want to preserve this host identity."
+    else
+      echo "No Vast machine ID found at $machine_id_file"
+      exit 1
+    fi
+    ;;
+  restore)
+    id="${2:-}"
+    if [[ -z "$id" ]]; then usage >&2; exit 2; fi
+    if [[ ! "$id" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+      echo "Machine ID contains unexpected characters. Refusing." >&2
+      exit 2
+    fi
+    if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then exec sudo "$0" "$@"; fi
+    install -d -m 0755 /var/lib/vastai_kaalia
+    printf '%s' "$id" > "$machine_id_file"
+    chmod 0644 "$machine_id_file"
+    echo "Restored Vast machine ID to $machine_id_file"
+    echo "Current: $(cat "$machine_id_file")"
+    ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac
+SCRIPT
+  sudo chmod 0755 "$vast_machine_id"
+  sudo bash -n "$vast_machine_id"
+}
+
+install_vast_power_limit_tool() {
+  local vast_power_limit="/usr/local/bin/vast_power_limit"
+  step "Installing persistent NVIDIA power-limit helper"
+  sudo tee "$vast_power_limit" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+
+service="/etc/systemd/system/vast-nvidia-power-limit.service"
+envfile="/etc/default/vast-nvidia-power-limit"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  sudo vast_power_limit <watts>   Set persistent GPU power limit for all GPUs
+  sudo vast_power_limit status    Show current/default/min/max/service status
+  sudo vast_power_limit disable   Disable/remove persistent power limit
+
+This intentionally keeps NVIDIA persistence mode ON with nvidia-smi -pm 1.
+EOF
+}
+
+require_root() { if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then exec sudo "$0" "$@"; fi; }
+
+status() {
+  echo "== NVIDIA persistence mode =="
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    pm_values="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+    if echo "$pm_values" | grep -qi 'Disabled'; then
+      echo "status: not fully enabled ($pm_values)"
+    elif [[ -n "$pm_values" ]]; then
+      echo "status: enabled/running ($pm_values)"
+    else
+      echo "status: unknown"
+    fi
+  else
+    echo "status: unknown (nvidia-smi not found)"
+  fi
+  echo
+  echo "== NVIDIA power limits =="
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia-smi --query-gpu=index,name,persistence_mode,power.draw,power.limit,power.default_limit,power.min_limit,power.max_limit --format=csv 2>/dev/null || nvidia-smi -q -d POWER || true
+  else
+    echo "nvidia-smi not found"
+  fi
+  echo
+  echo "== Persistent power-limit service =="
+  enabled="$(systemctl is-enabled vast-nvidia-power-limit.service 2>/dev/null || true)"
+  active="$(systemctl is-active vast-nvidia-power-limit.service 2>/dev/null || true)"
+  [[ -n "$enabled" ]] || enabled="not configured"
+  [[ -n "$active" ]] || active="not running"
+  echo "enabled: $enabled"
+  echo "active: $active"
+  [[ -f "$envfile" ]] && cat "$envfile" || true
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+  status|-s|--status) status ;;
+  disable|off|remove)
+    require_root "$@"
+    systemctl disable --now vast-nvidia-power-limit.service >/dev/null 2>&1 || true
+    rm -f "$service" "$envfile"
+    systemctl daemon-reload || true
+    echo "Persistent NVIDIA power limit disabled/removed."
+    ;;
+  -h|--help|help) usage ;;
+  *)
+    watts="$cmd"
+    case "$watts" in ''|*[!0-9]*) usage >&2; exit 2 ;; esac
+    require_root "$@"
+    if ! command -v nvidia-smi >/dev/null 2>&1; then echo "nvidia-smi not found" >&2; exit 1; fi
+    install -d -m 0755 /etc/default
+    printf 'VAST_NVIDIA_POWER_LIMIT_WATTS=%s\n' "$watts" > "$envfile"
+    cat > "$service" <<'EOF_SERVICE'
+[Unit]
+Description=Set persistent NVIDIA GPU power limit for Vast host
+After=nvidia-persistenced.service multi-user.target
+Wants=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/default/vast-nvidia-power-limit
+ExecStart=/usr/bin/nvidia-smi -pm 1
+ExecStart=/usr/bin/nvidia-smi -pl ${VAST_NVIDIA_POWER_LIMIT_WATTS}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+    systemctl daemon-reload
+    systemctl enable vast-nvidia-power-limit.service >/dev/null
+    systemctl restart vast-nvidia-power-limit.service
+    default_limit="$(nvidia-smi --query-gpu=power.default_limit --format=csv,noheader,nounits 2>/dev/null | head -n1 | awk '{print int($1)}' || true)"
+    if [[ -n "$default_limit" && "$watts" -gt "$default_limit" ]]; then
+      echo "WARNING: ${watts}W is above this GPU default power limit (${default_limit}W). Verify cooling and PSU headroom."
+    fi
+    echo "Persistent NVIDIA power limit set to ${watts}W for all GPUs."
+    echo "Persistence mode is kept ON (-pm 1)."
+    ;;
+esac
+SCRIPT
+  sudo chmod 0755 "$vast_power_limit"
+  sudo bash -n "$vast_power_limit"
+}
+
+install_vast_api_key_cleanup_tool() {
+  local vast_api_key_cleanup="/usr/local/bin/vast_api_key_cleanup"
+  step "Installing Vast CLI/API key cleanup helper"
+  sudo tee "$vast_api_key_cleanup" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+assume_yes=0
+for arg in "$@"; do
+  case "$arg" in
+    -y|--yes) assume_yes=1 ;;
+    -h|--help) echo "Usage: sudo vast_api_key_cleanup [--yes]"; exit 0 ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then exec sudo "$0" "$@"; fi
+echo "This removes stored Vast CLI/API key config for the invoking user and root."
+if [[ "$assume_yes" -ne 1 ]]; then
+  read -r -p "Type CLEAN VAST API KEY to continue: " answer
+  [[ "$answer" == "CLEAN VAST API KEY" ]] || { echo "Cancelled."; exit 0; }
+fi
+target_user="${SUDO_USER:-}"
+if [[ -n "$target_user" && "$target_user" != "root" ]] && home="$(getent passwd "$target_user" | cut -d: -f6)" && [[ -n "$home" ]]; then
+  rm -rf "$home/.config/vastai" "$home/.vastai" "$home/.vast"
+  echo "Cleaned Vast CLI config for $target_user"
+fi
+rm -rf /root/.config/vastai /root/.vastai /root/.vast
+echo "Cleaned Vast CLI config for root"
+echo "Done. Also revoke/delete temporary API keys in the Vast.ai web UI if you created one for testing."
+SCRIPT
+  sudo chmod 0755 "$vast_api_key_cleanup"
+  sudo bash -n "$vast_api_key_cleanup"
+}
+
+
+install_vast_backup_identity_tool() {
+  local cmd="/usr/local/bin/vast_backup_identity"
+  step "Installing Vast identity backup helper"
+  sudo tee "$cmd" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+out="${1:-}"
+mid="$(cat /var/lib/vastai_kaalia/machine_id 2>/dev/null || true)"
+ports="$(cat /var/lib/vastai_kaalia/host_port_range 2>/dev/null || true)"
+host="$(hostname 2>/dev/null || true)"
+if [[ -n "$out" ]]; then
+  {
+    echo "# Vast identity backup - save before reinstall/wipe"
+    echo "created_at=$(date -Is)"
+    echo "hostname=$host"
+    echo "machine_id=${mid:-MISSING}"
+    echo "host_port_range=${ports:-MISSING}"
+  } | tee "$out"
+  echo "Saved identity backup to: $out"
+else
+  echo "# Vast identity backup - save before reinstall/wipe"
+  echo "created_at=$(date -Is)"
+  echo "hostname=$host"
+  echo "machine_id=${mid:-MISSING}"
+  echo "host_port_range=${ports:-MISSING}"
+fi
+SCRIPT
+  sudo chmod 0755 "$cmd"
+  sudo bash -n "$cmd"
+}
+
+install_vast_doctor_tool() {
+  local cmd="/usr/local/bin/vast_doctor"
+  step "Installing Vast doctor helper"
+  sudo tee "$cmd" >/dev/null <<'SCRIPT'
+#!/usr/bin/env bash
+set -uo pipefail
+pass=0; warn=0; fail=0
+ok(){ printf '✓ %s\n' "$*"; pass=$((pass+1)); }
+soft(){ printf '! %s\n' "$*"; warn=$((warn+1)); }
+bad(){ printf '✗ %s\n' "$*"; fail=$((fail+1)); }
+has(){ command -v "$1" >/dev/null 2>&1; }
+svc(){ if systemctl list-unit-files "$1.service" --no-legend 2>/dev/null | grep -q "^$1\\.service"; then systemctl is-active --quiet "$1" && ok "$1 service active" || bad "$1 service not active"; else soft "$1 service not installed"; fi; }
+echo "== Vast doctor =="; echo "Host: $(hostname)"; echo "Time: $(date -Is)"; echo
+has nvidia-smi && nvidia-smi >/dev/null 2>&1 && ok "nvidia-smi works" || bad "nvidia-smi failed/missing"
+if has nvidia-smi; then
+  pm="$(nvidia-smi --query-gpu=persistence_mode --format=csv,noheader 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  echo "$pm" | grep -qi Disabled && soft "NVIDIA persistence mode not fully enabled ($pm)" || ok "NVIDIA persistence mode enabled/running (${pm:-unknown})"
+  nvidia-smi --query-gpu=index,name,temperature.gpu,power.draw,power.limit,power.default_limit,power.max_limit --format=csv 2>/dev/null || true
+fi
+svc docker; svc containerd; svc vastai; svc vast_metrics; svc nvidia-persistenced
+if [[ -s /var/lib/vastai_kaalia/machine_id ]]; then ok "Vast machine ID present: $(cat /var/lib/vastai_kaalia/machine_id)"; else soft "Vast machine ID missing (new identity likely)"; fi
+if [[ -s /var/lib/vastai_kaalia/host_port_range ]]; then ok "Vast host port range: $(cat /var/lib/vastai_kaalia/host_port_range)"; else soft "Vast host port range missing"; fi
+if systemctl is-enabled vast-nvidia-power-limit.service >/dev/null 2>&1; then ok "Persistent power-limit service enabled"; else soft "Persistent power-limit service not configured (optional)"; fi
+if findmnt /var/lib/docker >/dev/null 2>&1; then
+  fs="$(findmnt -no FSTYPE /var/lib/docker)"; opts="$(findmnt -no OPTIONS /var/lib/docker)"
+  [[ "$fs" == xfs && "$opts" == *prjquota* ]] && ok "Docker storage XFS/prjquota" || soft "Docker storage not XFS/prjquota ($fs $opts)"
+else soft "/var/lib/docker is not a separate mount"; fi
+df -hT / /var/lib/docker 2>/dev/null || df -hT /
+if has docker; then docker info >/dev/null 2>&1 && ok "docker info works" || bad "docker info failed"; docker system df 2>/dev/null || true; fi
+if has curl && curl -I -fsS --max-time 8 https://console.vast.ai >/dev/null 2>&1; then ok "console.vast.ai reachable"; else bad "console.vast.ai not reachable"; fi
+echo; echo "Summary: pass=$pass warn=$warn fail=$fail"
+(( fail == 0 )) || exit 1
+SCRIPT
+  sudo chmod 0755 "$cmd"
+  sudo bash -n "$cmd"
 }
 
 install_host_polish_tools() {
@@ -769,6 +1103,12 @@ SCRIPT
 sudo chmod 0755 "$vast_system_update"
   sudo bash -n "$vast_system_update"
 
+  install_vast_machine_id_tool
+  install_vast_backup_identity_tool
+  install_vast_power_limit_tool
+  install_vast_api_key_cleanup_tool
+  install_vast_doctor_tool
+
   step "Installing Vast.ai host port helper commands"
   sudo tee "$vast_port_range" >/dev/null <<'SCRIPT'
 #!/usr/bin/env bash
@@ -933,7 +1273,7 @@ sudo chmod 0755 "$burn_cleanup"
   sudo bash -n "$burn_cleanup"
 
 
-  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup, vast_system_update, vast_port_range, vast_port_check, rig-burn-cleanup"
+  success "Host polish tools installed: storage_layout, disk_health, vast_ready_check, vast_cleanup, vast_system_update, vast_machine_id, vast_backup_identity, vast_power_limit, vast_api_key_cleanup, vast_doctor, vast_port_range, vast_port_check, rig-burn-cleanup"
 }
 
 install_gpu_fan_control() {

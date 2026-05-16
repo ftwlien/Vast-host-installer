@@ -9,7 +9,7 @@ Generated ISO files live in `iso/build/` and are intentionally ignored by git be
 ## Recommended build
 
 ```text
-vast-host-installer-jammy-v1.iso
+vast-host-installer-jammy-v3.iso
 ```
 
 SHA256: see the `.sha256` file attached to the GitHub release.
@@ -24,7 +24,7 @@ It is a purpose-built Vast.ai host installer image that:
 - stages the full installer payload into `/opt/vast-host-installer`
 - creates the bootstrap handoff so the operator knows exactly what to run next
 - carries the full three-phase Vast Host Installer workflow
-- prepares Docker/Vast storage
+- prepares Docker/Vast storage, including automatic `/dev/md0` RAID0 XFS storage for multi-data-disk ISO installs
 - installs/refreshes the NVIDIA open-driver flow
 - runs the official interactive Vast.ai host installer command
 - verifies Docker, NVIDIA runtime, Vast services, and `vast_metrics`
@@ -34,6 +34,24 @@ It is a purpose-built Vast.ai host installer image that:
 - prints a clean final Phase 3 summary with logo, cyan boxes, green checkmarks, white text, quick stress commands, useful polish commands, and Vast CLI next steps
 
 The ISO handles the boring infrastructure work so the operator can focus on the few things that must stay machine-specific: hostname, operator user, fresh Vast.ai install command, and optional extras.
+
+
+## Automatic ISO RAID0 storage
+
+The v3 ISO can automatically build a Vast-friendly multi-NVMe storage layout during the Ubuntu autoinstall phase.
+
+Policy:
+
+```text
+Smallest suitable internal disk -> Ubuntu OS / EFI / boot
+One remaining internal disk      -> XFS mounted at /var/lib/docker
+Two or more remaining disks      -> mdadm RAID0 /dev/md0, XFS mounted at /var/lib/docker
+USB/removable installer media    -> ignored/excluded
+```
+
+Why this matters: Vast workloads usually hit Docker storage, image extraction, checkpoints, datasets, and scratch/cache files much harder than the small Ubuntu root filesystem. Keeping Ubuntu on the smallest disk and putting `/var/lib/docker` on the fast/larger data disks gives renters more usable capacity and better I/O behavior.
+
+RAID0 warning: this is not redundant storage. It is intended for Vast/Docker scratch workloads. Losing one RAID0 member loses the array data.
 
 ## Beginner install flow
 

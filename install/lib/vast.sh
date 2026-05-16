@@ -14,6 +14,15 @@ install_vast_host_from_known_good_flow() {
   log "installing Vast host from known-good guide flow"
   sudo apt install -y python3 wget netcat-openbsd
 
+  # Vast's official installer normally installs/configures Docker, but on some
+  # fresh hosts it can return without leaving a docker command behind. Preinstall
+  # Docker here so --resume is idempotent and the official Vast command has a
+  # working Docker base to configure with the NVIDIA runtime.
+  if ! command -v docker >/dev/null 2>&1 || ! systemctl is-active docker >/dev/null 2>&1; then
+    warn "Docker is missing or inactive before Vast install; installing Docker first"
+    install_docker_from_known_good_flow
+  fi
+
   if [[ -n "$install_cmd" ]]; then
     local vast_tmp
     if [[ "$install_cmd" == *"--interactive"* && ! -t 0 ]]; then
